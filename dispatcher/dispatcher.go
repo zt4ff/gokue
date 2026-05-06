@@ -1,3 +1,5 @@
+// Package dispatcher provides a task dispatcher for executing jobs with worker pool pattern.
+// It manages job submission, processing, retries, and collection of execution statistics.
 package dispatcher
 
 import (
@@ -13,28 +15,45 @@ import (
 )
 
 var (
-	ErrClosed    = errors.New("dispatcher is closed")
+	// ErrClosed is returned when attempting to submit to a closed dispatcher.
+	ErrClosed = errors.New("dispatcher is closed")
+	// ErrQueueFull is returned when the task queue is at capacity in TrySubmit.
 	ErrQueueFull = errors.New("dispatcher queue is full")
-	ErrNilJob    = errors.New("job cannot be nil")
-	ErrNilCtx    = errors.New("context cannot be nil")
+	// ErrNilJob is returned when a nil job is submitted.
+	ErrNilJob = errors.New("job cannot be nil")
+	// ErrNilCtx is returned when a nil context is provided.
+	ErrNilCtx = errors.New("context cannot be nil")
 )
 
+// Task represents a unit of work to be processed by the dispatcher.
 type Task struct {
-	Name        string
-	Job         job.Job
+	// Name is the identifier for this task.
+	Name string
+	// Job is the job implementation to be executed.
+	Job job.Job
+	// SubmittedAt is the timestamp when the task was submitted.
 	SubmittedAt time.Time
 }
 
+// Dispatcher manages a pool of workers to execute tasks with configurable retry logic and statistics collection.
 type Dispatcher struct {
-	cfg       config.Config
+	// cfg holds the dispatcher configuration.
+	cfg config.Config
+	// collector tracks execution statistics.
 	collector *stats.Collector
-	tasks     chan Task
+	// tasks is the channel for submitting tasks to workers.
+	tasks chan Task
 
+	// submitMu protects the closed flag.
 	submitMu sync.RWMutex
-	closed   bool
-	wg       sync.WaitGroup
+	// closed indicates whether the dispatcher has been closed.
+	closed bool
+	// wg tracks all active worker goroutines.
+	wg sync.WaitGroup
 }
 
+// New creates a new Dispatcher with the given configuration and optional statistics collector.
+// If collector is nil, a new Collector is created. It starts the configured number of worker goroutines.
 func New(cfg config.Config, collector *stats.Collector) *Dispatcher {
 	if collector == nil {
 		collector = stats.NewCollector()
@@ -54,6 +73,8 @@ func New(cfg config.Config, collector *stats.Collector) *Dispatcher {
 	return d
 }
 
+// Submit adds a task to the dispatcher's queue, blocking until the task is enqueued or the context is cancelled.
+// It validates that the context and job are not nil and returns ErrClosed if the dispatcher is closed.
 func (d *Dispatcher) Submit(ctx context.Context, task Task) error {
 	if ctx == nil {
 		return ErrNilCtx
@@ -82,6 +103,9 @@ func (d *Dispatcher) Submit(ctx context.Context, task Task) error {
 	}
 }
 
+// TrySubmit attempts to add a task to the dispatcher's queue without blocking.
+// It returns ErrQueueFull if the queue is at capacity, ErrClosed if the dispatcher is closed,
+// or ErrNilJob/ErrNilCtx if the job or context is nil.
 func (d *Dispatcher) TrySubmit(ctx context.Context, task Task) error {
 	if ctx == nil {
 		return ErrNilCtx
@@ -110,6 +134,8 @@ func (d *Dispatcher) TrySubmit(ctx context.Context, task Task) error {
 	}
 }
 
+// Close gracefully shuts down the dispatcher, waiting for all workers to finish processing their current tasks.
+// It blocks until all workers have completed or the context is cancelled.
 func (d *Dispatcher) Close(ctx context.Context) error {
 	if ctx == nil {
 		return ErrNilCtx
@@ -136,10 +162,13 @@ func (d *Dispatcher) Close(ctx context.Context) error {
 	}
 }
 
+// Stats returns a snapshot of the current execution statistics.
 func (d *Dispatcher) Stats() stats.Snapshot {
 	return d.collector.Snapshot()
 }
 
+// worker processes tasks from the dispatcher's queue until it is closed.
+// It continuously calls execute on each received task.
 func (d *Dispatcher) worker() {
 	defer d.wg.Done()
 
@@ -148,6 +177,9 @@ func (d *Dispatcher) worker() {
 	}
 }
 
+// execute runs a task with retry logic based on the dispatcher's configuration.
+// It attempts to execute the job up to MaxRetries times with exponential backoff delays.
+// Statistics are updated after each execution attempt.
 func (d *Dispatcher) execute(task Task) {
 	var err error
 	for attempt := 0; attempt <= d.cfg.MaxRetries; attempt++ {
@@ -168,6 +200,8 @@ func (d *Dispatcher) execute(task Task) {
 	d.collector.IncFailed()
 }
 
+// runJob executes a job with the specified timeout and recovers from any panics.
+// It creates a context with the given timeout and calls the job's Process method.
 func runJob(task job.Job, timeout time.Duration) (err error) {
 	ctx := context.Background()
 	var cancel context.CancelFunc
@@ -185,6 +219,8 @@ func runJob(task job.Job, timeout time.Duration) (err error) {
 	return task.Process(ctx)
 }
 
+// retryDelay calculates the exponential backoff delay for the given attempt number.
+// Returns 0 if base delay is <= 0, otherwise returns base * (attempt + 1).
 func retryDelay(base time.Duration, attempt int) time.Duration {
 	if base <= 0 {
 		return 0

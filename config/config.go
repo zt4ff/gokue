@@ -46,7 +46,7 @@ func Default() Config {
 	}
 }
 
-// Validate checks if the Config
+// Validate checks if the Config if valid or not.
 func (c *Config) Validate() error {
 	switch c.Backend {
 	case InMemory, MongoDB:
