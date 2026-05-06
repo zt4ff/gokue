@@ -1,1 +1,3 @@
 package stats
+
+// Stats collector

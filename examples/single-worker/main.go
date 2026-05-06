@@ -22,5 +22,10 @@ func main() {
 		return
 	}
 
-	q.RegisterJob("example", Email{})
+	user := Email{email: "johndoe@gmail.com", message: "This is testing the email"}
+
+	q.RegisterJob("send email")
+
+	q.Run(user)
+
 }
