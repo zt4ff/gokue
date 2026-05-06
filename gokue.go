@@ -1,3 +1,4 @@
+// Package gokue provides a job queue library for managing and executing tasks with configurable workers and retries.
 package gokue
 
 import (
@@ -15,60 +16,77 @@ import (
 	"github.com/zt4ff/gokue/stats"
 )
 
+// Job is a task that can be executed by the queue.
 type Job = jobpkg.Job
 
+// Option is a functional option for configuring a Queue.
 type Option func(*config.Config)
 
+// Queue manages job submission, execution, and statistics using a pool of workers.
 type Queue struct {
-	config     config.Config
+	// config holds the queue configuration.
+	config config.Config
+	// dispatcher handles job execution with worker pool.
 	dispatcher *dispatcher.Dispatcher
-	collector  *stats.Collector
-	jobs       map[string]struct{}
-	mu         sync.RWMutex
+	// collector tracks execution statistics.
+	collector *stats.Collector
+	// jobs is a map of registered job names.
+	jobs map[string]struct{}
+	// mu protects the jobs map.
+	mu sync.RWMutex
 }
 
+// WithConfig returns an Option that sets the entire configuration.
 func WithConfig(cfg config.Config) Option {
 	return func(target *config.Config) {
 		*target = cfg
 	}
 }
 
+// WithWorkerCount returns an Option that sets the number of concurrent workers.
 func WithWorkerCount(workerCount int) Option {
 	return func(target *config.Config) {
 		target.WorkerCount = workerCount
 	}
 }
 
+// WithQueueSize returns an Option that sets the maximum queue size.
 func WithQueueSize(queueSize int) Option {
 	return func(target *config.Config) {
 		target.QueueSize = queueSize
 	}
 }
 
+// WithMaxRetries returns an Option that sets the maximum number of retries.
 func WithMaxRetries(maxRetries int) Option {
 	return func(target *config.Config) {
 		target.MaxRetries = maxRetries
 	}
 }
 
+// WithJobTimeout returns an Option that sets the job execution timeout.
 func WithJobTimeout(timeout time.Duration) Option {
 	return func(target *config.Config) {
 		target.JobTimeout = timeout
 	}
 }
 
+// WithRetryDelay returns an Option that sets the delay between retries.
 func WithRetryDelay(delay time.Duration) Option {
 	return func(target *config.Config) {
 		target.RetryDelay = delay
 	}
 }
 
+// WithShutdownTimeout returns an Option that sets the graceful shutdown timeout.
 func WithShutdownTimeout(timeout time.Duration) Option {
 	return func(target *config.Config) {
 		target.ShutdownTimeout = timeout
 	}
 }
 
+// NewQueue creates and returns a new Queue with the provided configuration options.
+// It returns an error if the configuration is invalid.
 func NewQueue(options ...Option) (*Queue, error) {
 	queueConfig := config.Default()
 	for _, option := range options {
@@ -92,6 +110,7 @@ func NewQueue(options ...Option) (*Queue, error) {
 	return queue, nil
 }
 
+// RegisterJob registers a job name with the queue. Jobs should be registered before submission if enforced.
 func (q *Queue) RegisterJob(name string) {
 	if q == nil {
 		return
@@ -107,6 +126,7 @@ func (q *Queue) RegisterJob(name string) {
 	q.mu.Unlock()
 }
 
+// Submit adds a job to the queue, blocking until the job is enqueued or the context is cancelled.
 func (q *Queue) Submit(ctx context.Context, name string, task Job) error {
 	if q == nil {
 		return errors.New("queue is nil")
@@ -134,6 +154,7 @@ func (q *Queue) Submit(ctx context.Context, name string, task Job) error {
 	return q.dispatcher.Submit(ctx, dispatcher.Task{Name: name, Job: task})
 }
 
+// TrySubmit attempts to add a job to the queue without blocking.
 func (q *Queue) TrySubmit(ctx context.Context, name string, task Job) error {
 	if q == nil {
 		return errors.New("queue is nil")
@@ -161,6 +182,7 @@ func (q *Queue) TrySubmit(ctx context.Context, name string, task Job) error {
 	return q.dispatcher.TrySubmit(ctx, dispatcher.Task{Name: name, Job: task})
 }
 
+// Run submits a job to the queue using a background context.
 func (q *Queue) Run(task Job) {
 	if q == nil {
 		return
@@ -168,6 +190,7 @@ func (q *Queue) Run(task Job) {
 	_ = q.Submit(context.Background(), q.jobName(task), task)
 }
 
+// Close gracefully shuts down the queue and waits for all workers to finish processing.
 func (q *Queue) Close(ctx context.Context) error {
 	if q == nil {
 		return errors.New("queue is nil")
@@ -178,6 +201,7 @@ func (q *Queue) Close(ctx context.Context) error {
 	return q.dispatcher.Close(ctx)
 }
 
+// Stats returns a snapshot of the current execution statistics.
 func (q *Queue) Stats() stats.Snapshot {
 	if q == nil || q.collector == nil {
 		return stats.Snapshot{}
@@ -185,6 +209,7 @@ func (q *Queue) Stats() stats.Snapshot {
 	return q.collector.Snapshot()
 }
 
+// jobName returns the name of a job based on its type reflection.
 func (q *Queue) jobName(task Job) string {
 	if task == nil {
 		return "anonymous-job"

@@ -1,3 +1,4 @@
+// Package config provides configuration structures for the gokue job queue.
 package config
 
 import (
@@ -14,6 +15,7 @@ const (
 	MongoDB = "mongo-db"
 )
 
+// Config holds the configuration for a job queue.
 type Config struct {
 	// Backend is the storage type of the queue.
 	Backend string
@@ -26,14 +28,15 @@ type Config struct {
 	// JobTimeout is the maximum duration of time a job should run.
 	JobTimeout time.Duration
 	// RetryDelay is the amount of time between retries.
-	RetryDelay      time.Duration
+	RetryDelay time.Duration
+	// ShutdownTimeout is the maximum duration to wait for graceful shutdown.
 	ShutdownTimeout time.Duration
 }
 
 // ErrInvalidConfig is an error where config for a queue is invalid.
 var ErrInvalidConfig = errors.New("invalid queue config")
 
-// Default returns a Config with default values.
+// Default returns a Config with sensible default values.
 func Default() Config {
 	return Config{
 		Backend:         InMemory,
@@ -46,7 +49,7 @@ func Default() Config {
 	}
 }
 
-// Validate checks if the Config if valid or not.
+// Validate checks if the Config is valid and returns an error if any field is invalid.
 func (c *Config) Validate() error {
 	switch c.Backend {
 	case InMemory, MongoDB:
