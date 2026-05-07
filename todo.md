@@ -1,35 +1,4 @@
-# gokue — Detailed TODO Guide (Junior-Friendly)
-
-This plan is written so you can implement everything yourself in small, safe steps.
-
-How to use this file:
-- Work in small PRs (1 feature/fix per PR).
-- Don’t skip tests.
-- After each step: run tests, commit, then move to the next item.
-
----
-
-## 0) Understand current architecture first (30–60 mins)
-
-Goal: know what each package does before changing anything.
-
-### Read these files in order
-1. `gokue.go` (public API)
-2. `dispatcher/dispatcher.go` (worker pool, retries)
-3. `config/config.go` (defaults + validation)
-4. `stats/stats.go` (counters)
-5. `job/job.go` and `job/job-details.go` (job contracts)
-
-### Write down answers in your own notes
-- Where is job validation done?
-- Where does retry happen?
-- What happens when `Close` is called?
-- What can fail and what errors are returned?
-
-Definition of done:
-- [ ] You can explain the request flow: `NewQueue` → `Submit` → worker → `Process`
-
----
+# gokue Detailed TODO Guide
 
 ## 1) Add tests before refactoring (highest priority)
 
