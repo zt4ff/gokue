@@ -15,7 +15,8 @@ func setup(t *testing.T) *dispatcher.Dispatcher {
 	t.Helper()
 
 	config := config.Config{
-		Backend:         "in-memory",
+		Backend:         config.InMemory,
+		BackoffStrategy: config.Exponential,
 		QueueSize:       10,
 		WorkerCount:     2,
 		MaxRetries:      2,

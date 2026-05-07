@@ -52,10 +52,16 @@ func TestNewQueueInvalidConfigs(t *testing.T) {
 		config func(any) Option
 		arg    any
 	}{
-		"with config": {
+		"with invalid backend option": {
 			config: func(a any) Option { return WithConfig(a.(config.Config)) },
 			arg: config.Config{
 				Backend: "wrong backend",
+			},
+		},
+		"with invalid backoff strategy": {
+			config: func(a any) Option { return WithConfig(a.(config.Config)) },
+			arg: config.Config{
+				BackoffStrategy: "quadratic",
 			},
 		},
 		"with worker count": {

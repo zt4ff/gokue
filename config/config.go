@@ -11,8 +11,64 @@ import (
 const (
 	// InMemory is the configuration to use in-memory backend.
 	InMemory = "in-memory"
-	// MongoDB is the configuration to use Mongo DB as the backend.
+	// MongoDB is the configuration to use Mongo DB backend.
 	MongoDB = "mongo-db"
+)
+
+const (
+	// Constant is the backoff strategy that retries after a fixed delay.
+	//
+	// Formula:
+	//   delay = B
+	//
+	// Example:
+	//   B = 2s
+	//   retries = 2s, 2s, 2s, 2s...
+	//
+	// B = base retry delay.
+	Constant = "constant"
+
+	// Linear is the backoff strategy that increases the retry delay
+	// by a fixed amount on every retry.
+	//
+	// Formula:
+	//   delay = B * N
+	//
+	// Example:
+	//   B = 2s
+	//   retries = 2s, 4s, 6s, 8s...
+	//
+	// B = base retry delay.
+	// N = retry attempt number starting from 1.
+	Linear = "linear"
+
+	// Exponential is the backoff strategy that doubles the retry delay
+	// on every retry attempt.
+	//
+	// Formula:
+	//   delay = B * 2^(N-1)
+	//
+	// Example:
+	//   B = 2s
+	//   retries = 2s, 4s, 8s, 16s...
+	//
+	// B = base retry delay.
+	// N = retry attempt number starting from 1.
+	Exponential = "exponential"
+
+	// ExponentialJitter is the exponential backoff strategy with
+	// randomness added to reduce synchronized retries and retry storms.
+	//
+	// Formula:
+	//   delay = random(0, B * 2^(N-1))
+	//
+	// Example:
+	//   B = 2s
+	//   retries ≈ 1.2s, 3.8s, 5.1s, 14.7s...
+	//
+	// B = base retry delay.
+	// N = retry attempt number starting from 1.
+	ExponentialJitter = "exponential-jitter"
 )
 
 // Config holds the configuration for a job queue.
@@ -29,6 +85,8 @@ type Config struct {
 	JobTimeout time.Duration
 	// RetryDelay is the amount of time between retries.
 	RetryDelay time.Duration
+	// BackoffStrategy is the strategy to handle resilience and how to calculate retry time.
+	BackoffStrategy string
 	// ShutdownTimeout is the maximum duration to wait for graceful shutdown.
 	ShutdownTimeout time.Duration
 }
@@ -46,6 +104,7 @@ func Default() Config {
 		JobTimeout:      30 * time.Second,
 		RetryDelay:      250 * time.Millisecond,
 		ShutdownTimeout: 10 * time.Second,
+		BackoffStrategy: Exponential,
 	}
 }
 
@@ -55,6 +114,12 @@ func (c *Config) Validate() error {
 	case InMemory, MongoDB:
 	default:
 		return fmt.Errorf("%w: unsupported backend %q", ErrInvalidConfig, c.Backend)
+	}
+
+	switch c.BackoffStrategy {
+	case Constant, Linear, Exponential, ExponentialJitter:
+	default:
+		return fmt.Errorf("%w: unsupported backoff strategy %q", ErrInvalidConfig, c.BackoffStrategy)
 	}
 
 	if c.WorkerCount <= 0 {
