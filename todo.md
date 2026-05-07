@@ -1,45 +1,5 @@
 # gokue Detailed TODO Guide
 
-## 1) Add tests before refactoring (highest priority)
-
-Why first: tests protect you from breaking behavior.
-
-### 1.1 Create test files
-- `dispatcher/dispatcher_test.go`
-- `gokue_test.go`
-
-### 1.2 Test cases to add
-
-#### In `dispatcher/dispatcher_test.go`
-- [ ] `Submit` with nil context returns `ErrNilCtx`
-- [ ] `Submit` with nil job returns `ErrNilJob`
-- [ ] `TrySubmit` returns `ErrQueueFull` when queue is full
-- [ ] `Close` makes future submits return `ErrClosed`
-- [ ] Retry count: failed job retries up to `MaxRetries`
-- [ ] Panic in job does not crash process and increments failed stats
-
-#### In `gokue_test.go`
-- [ ] `Run` does not panic and submits anonymous job
-- [ ] `Stats` returns non-zero values after processing
-
-### 1.3 Helpful test pattern
-- Create small fake jobs:
-  - success job (returns nil)
-  - fail job (returns error)
-  - panic job (panics)
-- Use channels or atomics to assert call counts.
-
-### 1.4 Run tests often
-```bash
-go test ./...
-```
-
-Definition of done:
-- [ ] Core behavior is covered by tests
-- [ ] `go test ./...` passes consistently
-
----
-
 ## 2) Refactor retry/backoff logic (small and safe)
 
 Current behavior is linear retry delay. Make it configurable.
