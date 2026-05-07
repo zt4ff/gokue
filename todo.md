@@ -19,8 +19,6 @@ Why first: tests protect you from breaking behavior.
 - [ ] Panic in job does not crash process and increments failed stats
 
 #### In `gokue_test.go`
-- [ ] `NewQueue` with invalid config returns error
-- [ ] `RegisterJob` + `Submit` with unknown job name should fail when registry is non-empty
 - [ ] `Run` does not panic and submits anonymous job
 - [ ] `Stats` returns non-zero values after processing
 

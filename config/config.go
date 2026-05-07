@@ -66,6 +66,15 @@ func (c *Config) Validate() error {
 	if c.MaxRetries < 0 {
 		return fmt.Errorf("%w: max retries cannot be negative", ErrInvalidConfig)
 	}
+	if c.JobTimeout < 0 {
+		return fmt.Errorf("%w: job timeout cannot be negative", ErrInvalidConfig)
+	}
+	if c.ShutdownTimeout < 0 {
+		return fmt.Errorf("%w: shutdown timeout cannot be negative", ErrInvalidConfig)
+	}
+	if c.RetryDelay < 0 {
+		return fmt.Errorf("%w: retry delay cannot be negative", ErrInvalidConfig)
+	}
 
 	return nil
 }
