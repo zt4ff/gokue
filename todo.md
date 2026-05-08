@@ -1,38 +1,5 @@
 # gokue Detailed TODO Guide
 
-## 2) Refactor retry/backoff logic (small and safe)
-
-Current behavior is linear retry delay. Make it configurable.
-
-### 2.1 Add backoff strategy type
-In config layer, add a strategy setting:
-- `constant`
-- `linear`
-- `exponential`
-- `exponential-jitter`
-
-### 2.2 Implement delay calculator
-In dispatcher layer, create one function that takes:
-- base delay
-- attempt
-- strategy
-
-Return `time.Duration`.
-
-### 2.3 Keep defaults backward-compatible
-- Existing users should still get current behavior unless they opt in.
-
-### 2.4 Add tests
-- [ ] Delay values are correct for each strategy
-- [ ] Delay never becomes negative
-- [ ] Jitter strategy stays within expected range
-
-Definition of done:
-- [ ] Configurable backoff works
-- [ ] Tests prove it
-
----
-
 ## 3) Improve graceful shutdown behavior
 
 You already have `Close(ctx)`; make behavior explicit and tested.
@@ -57,31 +24,7 @@ Definition of done:
 
 ---
 
-## 4) Add CI (so you stop breaking main by accident)
-
-Create GitHub workflow:
-- file: `.github/workflows/ci.yml`
-
-### CI checks
-- `go test ./...`
-- `go vet ./...`
-- formatting check (`gofmt`)
-
-Optional later:
-- `golangci-lint`
-
-### Commands to verify locally first
-```bash
-go test ./...
-go vet ./...
-gofmt -l .
-```
-
-Definition of done:
-- [ ] CI runs automatically on PRs
-- [ ] CI fails on format/test issues
-
----
+## 4) Deploy to backend
 
 ## 5) Introduce backend abstraction (major refactor; do after tests)
 

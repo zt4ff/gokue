@@ -29,7 +29,7 @@ var (
 
 // Task represents a unit of work to be processed by the dispatcher.
 type Task struct {
-	// Name is the identifier for this task.
+	// Name is the identifier for this task, used in error reporting.
 	Name string
 	// Job is the job implementation to be executed.
 	Job job.Job
@@ -37,7 +37,8 @@ type Task struct {
 	SubmittedAt time.Time
 }
 
-// Dispatcher manages a pool of workers to execute tasks with configurable retry logic and statistics collection.
+// Dispatcher manages a pool of workers to execute tasks with configurable retry logic
+// and statistics collection.
 type Dispatcher struct {
 	// cfg holds the dispatcher configuration.
 	cfg config.Config
@@ -45,6 +46,8 @@ type Dispatcher struct {
 	collector *stats.Collector
 	// tasks is the channel for submitting tasks to workers.
 	tasks chan Task
+	// quit is closed when the dispatcher shuts down, interrupting in-progress retry sleeps.
+	quit chan struct{}
 
 	// submitMu protects the closed flag.
 	submitMu sync.RWMutex
@@ -65,6 +68,7 @@ func New(cfg config.Config, collector *stats.Collector) *Dispatcher {
 		cfg:       cfg,
 		collector: collector,
 		tasks:     make(chan Task, cfg.QueueSize),
+		quit:      make(chan struct{}),
 	}
 
 	for worker := 0; worker < cfg.WorkerCount; worker++ {
@@ -75,8 +79,9 @@ func New(cfg config.Config, collector *stats.Collector) *Dispatcher {
 	return d
 }
 
-// Submit adds a task to the dispatcher's queue, blocking until the task is enqueued or the context is cancelled.
-// It validates that the context and job are not nil and returns ErrClosed if the dispatcher is closed.
+// Submit adds a task to the dispatcher's queue, blocking until the task is enqueued or
+// the context is cancelled. It validates that the context and job are not nil and returns
+// ErrClosed if the dispatcher is closed.
 func (d *Dispatcher) Submit(ctx context.Context, task Task) error {
 	if ctx == nil {
 		return ErrNilCtx
@@ -136,8 +141,11 @@ func (d *Dispatcher) TrySubmit(ctx context.Context, task Task) error {
 	}
 }
 
-// Close gracefully shuts down the dispatcher, waiting for all workers to finish processing their current tasks.
-// It blocks until all workers have completed or the context is cancelled.
+// Close gracefully shuts down the dispatcher, waiting for all workers to finish processing
+// their current tasks. It blocks until all workers have completed or the context is cancelled.
+// Note: if ctx is cancelled before workers finish, Close returns ctx.Err() but workers
+// continue running in the background until they complete — callers should not tear down
+// shared resources (e.g. the stats collector) immediately after a cancelled Close.
 func (d *Dispatcher) Close(ctx context.Context) error {
 	if ctx == nil {
 		return ErrNilCtx
@@ -146,7 +154,8 @@ func (d *Dispatcher) Close(ctx context.Context) error {
 	d.submitMu.Lock()
 	if !d.closed {
 		d.closed = true
-		close(d.tasks)
+		close(d.quit)  // signal workers to stop sleeping between retries
+		close(d.tasks) // stop accepting new tasks; workers drain the rest
 	}
 	d.submitMu.Unlock()
 
@@ -170,9 +179,17 @@ func (d *Dispatcher) Stats() stats.Snapshot {
 }
 
 // worker processes tasks from the dispatcher's queue until it is closed.
-// It continuously calls execute on each received task.
+// It continuously calls execute on each received task and recovers from any panics
+// in the dispatcher's own logic to avoid crashing the entire program.
 func (d *Dispatcher) worker() {
 	defer d.wg.Done()
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			// A panic in the dispatcher itself (not the job) is a programming error.
+			// Log it and let this worker die gracefully rather than crashing the program.
+			_ = fmt.Errorf("dispatcher worker panic: %v", recovered)
+		}
+	}()
 
 	for task := range d.tasks {
 		d.execute(task)
@@ -180,12 +197,16 @@ func (d *Dispatcher) worker() {
 }
 
 // execute runs a task with retry logic based on the dispatcher's configuration.
-// It attempts to execute the job up to MaxRetries times with exponential backoff delays.
-// Statistics are updated after each execution attempt.
+// It attempts to execute the job up to MaxRetries times with configurable backoff delays.
+// The retry sleep is interruptible via the dispatcher's quit channel so that Close
+// is responsive. Statistics are updated after each execution attempt.
+//
+// IncRetried tracks individual retry attempts, not retried tasks — a task retried
+// 3 times increments the counter 3 times.
 func (d *Dispatcher) execute(task Task) {
 	var err error
 	for attempt := 0; attempt <= d.cfg.MaxRetries; attempt++ {
-		err = runJob(task.Job, d.cfg.JobTimeout)
+		err = runJob(task.Name, task.Job, d.cfg.JobTimeout)
 		if err == nil {
 			d.collector.IncProcessed()
 			return
@@ -193,8 +214,16 @@ func (d *Dispatcher) execute(task Task) {
 
 		if attempt < d.cfg.MaxRetries {
 			d.collector.IncRetried()
-			if delay := retryDelay(d.cfg.RetryDelay, attempt, d.cfg.BackoffStrategy); delay > 0 {
-				time.Sleep(delay)
+			delay := retryDelay(d.cfg.RetryDelay, attempt, d.cfg.BackoffStrategy)
+			if delay > 0 {
+				select {
+				case <-time.After(delay):
+					// delay elapsed, continue to next attempt
+				case <-d.quit:
+					// dispatcher is shutting down; abandon remaining retries
+					d.collector.IncFailed()
+					return
+				}
 			}
 		}
 	}
@@ -203,26 +232,41 @@ func (d *Dispatcher) execute(task Task) {
 }
 
 // runJob executes a job with the specified timeout and recovers from any panics.
-// It creates a context with the given timeout and calls the job's Process method.
-func runJob(task job.Job, timeout time.Duration) (err error) {
-	ctx := context.Background()
-	var cancel context.CancelFunc
+// It creates a cancellable context, optionally bounded by timeout, and calls the
+// job's Process method. The task name is included in panic error messages.
+func runJob(name string, j job.Job, timeout time.Duration) (err error) {
+	// Always create a cancellable context so cancel is always called,
+	// regardless of whether a timeout is set.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	if timeout > 0 {
-		ctx, cancel = context.WithTimeout(context.Background(), timeout)
+		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
 
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("job panic: %v", recovered)
+			err = fmt.Errorf("job %q panic: %v", name, recovered)
 		}
 	}()
 
-	return task.Process(ctx)
+	return j.Process(ctx)
 }
 
-// retryDelay calculates the exponential backoff delay for the given attempt number.
-// Returns 0 if base delay is <= 0, otherwise returns base * (attempt + 1).
+// retryDelay calculates the delay before the next retry attempt based on the chosen
+// backoff strategy:
+//
+//   - Constant:          base (same delay every attempt)
+//   - Linear:            base * (attempt + 1)  →  1x, 2x, 3x, ...
+//   - Exponential:       base * 2^attempt      →  1x, 2x, 4x, 8x, ...
+//   - ExponentialJitter: Exponential delay + random jitter in [0, exp) to spread
+//     load across retrying clients (full jitter strategy)
+//
+// Returns 0 if base <= 0.
+//
+// Note: math/rand global functions are safe for concurrent use in Go 1.20+.
+// For older Go versions, supply a locked per-worker rand.Rand source instead.
 func retryDelay(base time.Duration, attempt int, strategy string) time.Duration {
 	if base <= 0 {
 		return 0
@@ -233,16 +277,19 @@ func retryDelay(base time.Duration, attempt int, strategy string) time.Duration 
 		return base
 
 	case config.Linear:
+		// attempt is 0-indexed; use attempt+1 so the first retry is never 0.
 		return base * time.Duration(attempt+1)
 
 	case config.Exponential:
+		// base * 2^attempt: 1x, 2x, 4x, 8x, ...
 		multiplier := math.Pow(2, float64(attempt))
 		return time.Duration(float64(base) * multiplier)
 
 	case config.ExponentialJitter:
-		multiplier := math.Pow(2, float64(attempt))
-		exp := time.Duration(float64(base) * multiplier)
-		jitter := time.Duration(rand.Int63n(int64(base)))
+		// Full jitter: jitter is drawn from [0, exp) so it scales with the
+		// exponential component, effectively spreading retries under load.
+		exp := time.Duration(float64(base) * math.Pow(2, float64(attempt)))
+		jitter := time.Duration(rand.Int63n(int64(exp)))
 		return exp + jitter
 
 	default:
