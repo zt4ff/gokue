@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -191,7 +193,7 @@ func (d *Dispatcher) execute(task Task) {
 
 		if attempt < d.cfg.MaxRetries {
 			d.collector.IncRetried()
-			if delay := retryDelay(d.cfg.RetryDelay, attempt); delay > 0 {
+			if delay := retryDelay(d.cfg.RetryDelay, attempt, d.cfg.BackoffStrategy); delay > 0 {
 				time.Sleep(delay)
 			}
 		}
@@ -221,9 +223,29 @@ func runJob(task job.Job, timeout time.Duration) (err error) {
 
 // retryDelay calculates the exponential backoff delay for the given attempt number.
 // Returns 0 if base delay is <= 0, otherwise returns base * (attempt + 1).
-func retryDelay(base time.Duration, attempt int) time.Duration {
+func retryDelay(base time.Duration, attempt int, strategy string) time.Duration {
 	if base <= 0 {
 		return 0
 	}
-	return base * time.Duration(attempt+1)
+
+	switch strategy {
+	case config.Constant:
+		return base
+
+	case config.Linear:
+		return base * time.Duration(attempt+1)
+
+	case config.Exponential:
+		multiplier := math.Pow(2, float64(attempt))
+		return time.Duration(float64(base) * multiplier)
+
+	case config.ExponentialJitter:
+		multiplier := math.Pow(2, float64(attempt))
+		exp := time.Duration(float64(base) * multiplier)
+		jitter := time.Duration(rand.Int63n(int64(base)))
+		return exp + jitter
+
+	default:
+		return 0
+	}
 }
