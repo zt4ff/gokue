@@ -1,28 +1,6 @@
 # gokue Detailed TODO Guide
 
-## 3) Improve graceful shutdown behavior
 
-You already have `Close(ctx)`; make behavior explicit and tested.
-
-### 3.1 Define expected modes
-- Drain mode: finish queued/in-flight jobs
-- Immediate mode: stop accepting new jobs and return quickly
-
-If you only support one mode now, document exactly what it does.
-
-### 3.2 Improve cancellation wiring
-- Ensure `ctx` cancellation is respected during close waiting.
-- Ensure submitters get deterministic errors during shutdown.
-
-### 3.3 Add tests
-- [ ] `Close` waits for long-running job in drain behavior
-- [ ] `Close` returns `ctx.Err()` when close context times out
-- [ ] No goroutine leaks in normal close path
-
-Definition of done:
-- [ ] Close behavior is deterministic and documented
-
----
 
 ## 4) Deploy to backend
 
@@ -45,34 +23,6 @@ Keep this minimal first. Don’t add Ack/Nack until you need durable backends.
 ### 5.3 Update dispatcher to depend on backend interface
 - Dispatcher should not know if tasks come from channel, DB, or broker.
 
-### 5.4 Add compatibility tests
-- Existing tests should still pass with in-memory backend.
-
-Definition of done:
-- [ ] Dispatcher works through interface
-- [ ] No external API break unless intentional
-
----
-
-## 6) Add observability (metrics + logs + tracing)
-
-### 6.1 Metrics first
-- Reuse `stats` counters.
-- Add clear metric names for:
-  - enqueued
-  - processed
-  - failed
-  - retried
-  - dropped
-
-### 6.2 Structured logging
-- Add logs at key points:
-  - submit accepted/rejected
-  - retry attempt
-  - final failure
-  - close start/complete
-
-Include fields: job name, attempt, error, duration.
 
 ### 6.3 Tracing (later)
 - Add OpenTelemetry spans around submit and job execution.

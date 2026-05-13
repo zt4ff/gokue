@@ -16,6 +16,18 @@ import (
 	"github.com/zt4ff/gokue/stats"
 )
 
+const (
+	// DrainMode waits for all in-flight and queued jobs to complete before returning.
+	// New submissions are rejected immediately upon Close call.
+	// This is the recommended mode for graceful shutdown scenarios.
+	DrainMode = "drain"
+
+	// ImmediateMode stops accepting new jobs and returns without waiting for
+	// in-flight jobs to complete. Workers will continue running in the background
+	// until they finish their current tasks. Use only for emergency shutdown.
+	ImmediateMode = "immediate"
+)
+
 var (
 	// ErrClosed is returned when attempting to submit to a closed dispatcher.
 	ErrClosed = errors.New("dispatcher is closed")
@@ -25,6 +37,8 @@ var (
 	ErrNilJob = errors.New("job cannot be nil")
 	// ErrNilCtx is returned when a nil context is provided.
 	ErrNilCtx = errors.New("context cannot be nil")
+	// ErrInvalidShutdownMode is returned when an unknown shutdown mode is provided.
+	ErrInvalidShutdownMode = errors.New("invalid shutdown mode")
 )
 
 // Task represents a unit of work to be processed by the dispatcher.
@@ -39,6 +53,19 @@ type Task struct {
 
 // Dispatcher manages a pool of workers to execute tasks with configurable retry logic
 // and statistics collection.
+//
+// Concurrency Model:
+//   - Workers: WorkerCount goroutines continuously read from the tasks channel.
+//   - Submit: Synchronized with submitMu to prevent submissions after Close.
+//   - Close: Blocks until all workers have finished processing (drain mode).
+//   - Quit Channel: Signals workers to abandon retry delays and proceed gracefully.
+//
+// Shutdown Behavior:
+//   - Drain Mode (default): Close blocks until all in-flight and queued jobs finish.
+//     Returns ctx.Err() if the wait times out. Workers continue silently if context
+//     is cancelled before completion; callers must not tear down shared resources.
+//   - Immediate Mode: Close returns quickly without waiting for workers to complete.
+//     Useful for emergency shutdowns but leaves goroutines running.
 type Dispatcher struct {
 	// cfg holds the dispatcher configuration.
 	cfg config.Config
@@ -141,14 +168,69 @@ func (d *Dispatcher) TrySubmit(ctx context.Context, task Task) error {
 	}
 }
 
-// Close gracefully shuts down the dispatcher, waiting for all workers to finish processing
-// their current tasks. It blocks until all workers have completed or the context is cancelled.
-// Note: if ctx is cancelled before workers finish, Close returns ctx.Err() but workers
-// continue running in the background until they complete — callers should not tear down
-// shared resources (e.g. the stats collector) immediately after a cancelled Close.
+// Close gracefully shuts down the dispatcher in drain mode, waiting for all workers
+// to finish processing their current tasks. It blocks until all workers have completed
+// or the context is cancelled.
+//
+// Behavior (Drain Mode):
+//   - Immediately rejects new submissions with ErrClosed.
+//   - Signals workers via quit channel to abandon retry delays.
+//   - Closes the tasks channel to indicate no more work will arrive.
+//   - Blocks waiting for all workers to finish draining the task queue.
+//   - Returns nil if all workers complete before context cancellation.
+//   - Returns ctx.Err() if context is cancelled during the wait.
+//
+// Important: If ctx is cancelled before workers finish, Close returns ctx.Err()
+// but workers continue running in the background until they complete. Callers
+// must not tear down shared resources (e.g., the stats collector) immediately
+// after a cancelled Close. Use the returned error to distinguish between a
+// successful close and a timeout.
+//
+// For emergency shutdown with immediate return, use CloseWithMode(ctx, ImmediateMode).
 func (d *Dispatcher) Close(ctx context.Context) error {
+	return d.CloseWithMode(ctx, DrainMode)
+}
+
+// CloseWithMode gracefully or immediately shuts down the dispatcher based on the mode.
+//
+// Modes:
+//   - DrainMode: Waits for all in-flight and queued jobs to complete (recommended).
+//     Returns ctx.Err() if the wait times out.
+//   - ImmediateMode: Returns immediately without waiting for workers to complete.
+//     Workers continue processing background tasks.
+//
+// Behavior (both modes):
+//   - Rejects new submissions with ErrClosed.
+//   - Signals workers via quit channel to abandon retry delays.
+//   - Closes the tasks channel.
+//
+// Drain Mode specifics:
+//   - Blocks until all workers finish or context is cancelled.
+//   - Returns nil on successful completion.
+//   - Returns ctx.Err() if context is cancelled.
+//
+// Immediate Mode specifics:
+//   - Returns immediately with nil.
+//   - Background workers continue until they finish current tasks.
+//   - Caller must not tear down shared resources immediately.
+//
+// Example:
+//
+//	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+//	defer cancel()
+//	if err := d.CloseWithMode(ctx, DrainMode); err != nil {
+//	    log.Printf("close timeout: %v", err)
+//	    // Attempt immediate shutdown
+//	    d.CloseWithMode(context.Background(), ImmediateMode)
+//	}
+func (d *Dispatcher) CloseWithMode(ctx context.Context, mode string) error {
 	if ctx == nil {
 		return ErrNilCtx
+	}
+
+	// Validate shutdown mode
+	if mode != DrainMode && mode != ImmediateMode {
+		return ErrInvalidShutdownMode
 	}
 
 	d.submitMu.Lock()
@@ -159,6 +241,12 @@ func (d *Dispatcher) Close(ctx context.Context) error {
 	}
 	d.submitMu.Unlock()
 
+	// For immediate mode, return without waiting
+	if mode == ImmediateMode {
+		return nil
+	}
+
+	// For drain mode, wait for all workers to finish
 	done := make(chan struct{})
 	go func() {
 		d.wg.Wait()
