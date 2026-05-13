@@ -13,6 +13,7 @@ import (
 
 	"github.com/zt4ff/gokue/config"
 	"github.com/zt4ff/gokue/job"
+	"github.com/zt4ff/gokue/logging"
 	"github.com/zt4ff/gokue/stats"
 )
 
@@ -71,6 +72,8 @@ type Dispatcher struct {
 	cfg config.Config
 	// collector tracks execution statistics.
 	collector *stats.Collector
+	// logger provides structured logging for observability.
+	logger logging.Logger
 	// tasks is the channel for submitting tasks to workers.
 	tasks chan Task
 	// quit is closed when the dispatcher shuts down, interrupting in-progress retry sleeps.
@@ -86,14 +89,26 @@ type Dispatcher struct {
 
 // New creates a new Dispatcher with the given configuration and optional statistics collector.
 // If collector is nil, a new Collector is created. It starts the configured number of worker goroutines.
+// If logger is nil, a NoOpLogger is used (logging disabled).
 func New(cfg config.Config, collector *stats.Collector) *Dispatcher {
+	return NewWithLogger(cfg, collector, nil)
+}
+
+// NewWithLogger creates a new Dispatcher with the given configuration, statistics collector, and logger.
+// If collector is nil, a new Collector is created.
+// If logger is nil, a NoOpLogger is used (logging disabled).
+func NewWithLogger(cfg config.Config, collector *stats.Collector, logger logging.Logger) *Dispatcher {
 	if collector == nil {
 		collector = stats.NewCollector()
+	}
+	if logger == nil {
+		logger = &logging.NoOpLogger{}
 	}
 
 	d := &Dispatcher{
 		cfg:       cfg,
 		collector: collector,
+		logger:    logger,
 		tasks:     make(chan Task, cfg.QueueSize),
 		quit:      make(chan struct{}),
 	}
@@ -124,15 +139,18 @@ func (d *Dispatcher) Submit(ctx context.Context, task Task) error {
 	defer d.submitMu.RUnlock()
 
 	if d.closed {
+		d.logger.Warn("job_submission_rejected", "job_name", task.Name, "reason", "dispatcher_closed")
 		return ErrClosed
 	}
 
 	select {
 	case d.tasks <- task:
 		d.collector.IncEnqueued()
+		d.logger.Debug("job_submitted", "job_name", task.Name, "status", "enqueued")
 		return nil
 	case <-ctx.Done():
 		d.collector.IncDropped()
+		d.logger.Warn("job_submission_rejected", "job_name", task.Name, "reason", "context_cancelled")
 		return ctx.Err()
 	}
 }
@@ -155,15 +173,18 @@ func (d *Dispatcher) TrySubmit(ctx context.Context, task Task) error {
 	defer d.submitMu.RUnlock()
 
 	if d.closed {
+		d.logger.Warn("job_submission_rejected", "job_name", task.Name, "reason", "dispatcher_closed")
 		return ErrClosed
 	}
 
 	select {
 	case d.tasks <- task:
 		d.collector.IncEnqueued()
+		d.logger.Debug("job_submitted", "job_name", task.Name, "status", "enqueued")
 		return nil
 	default:
 		d.collector.IncDropped()
+		d.logger.Warn("job_submission_rejected", "job_name", task.Name, "reason", "queue_full")
 		return ErrQueueFull
 	}
 }
@@ -233,6 +254,9 @@ func (d *Dispatcher) CloseWithMode(ctx context.Context, mode string) error {
 		return ErrInvalidShutdownMode
 	}
 
+	startTime := time.Now()
+	d.logger.Info("dispatcher_close_started", "mode", mode)
+
 	d.submitMu.Lock()
 	if !d.closed {
 		d.closed = true
@@ -243,6 +267,8 @@ func (d *Dispatcher) CloseWithMode(ctx context.Context, mode string) error {
 
 	// For immediate mode, return without waiting
 	if mode == ImmediateMode {
+		duration := time.Since(startTime)
+		d.logger.Info("dispatcher_close_completed", "mode", mode, "duration_ms", duration.Milliseconds(), "status", "success")
 		return nil
 	}
 
@@ -255,8 +281,12 @@ func (d *Dispatcher) CloseWithMode(ctx context.Context, mode string) error {
 
 	select {
 	case <-done:
+		duration := time.Since(startTime)
+		d.logger.Info("dispatcher_close_completed", "mode", mode, "duration_ms", duration.Milliseconds(), "status", "success")
 		return nil
 	case <-ctx.Done():
+		duration := time.Since(startTime)
+		d.logger.Error("dispatcher_close_completed", "mode", mode, "duration_ms", duration.Milliseconds(), "error", ctx.Err().Error())
 		return ctx.Err()
 	}
 }
@@ -275,7 +305,7 @@ func (d *Dispatcher) worker() {
 		if recovered := recover(); recovered != nil {
 			// A panic in the dispatcher itself (not the job) is a programming error.
 			// Log it and let this worker die gracefully rather than crashing the program.
-			_ = fmt.Errorf("dispatcher worker panic: %v", recovered)
+			d.logger.Error("worker_panic", "panic", fmt.Sprintf("%v", recovered))
 		}
 	}()
 
@@ -292,17 +322,32 @@ func (d *Dispatcher) worker() {
 // IncRetried tracks individual retry attempts, not retried tasks — a task retried
 // 3 times increments the counter 3 times.
 func (d *Dispatcher) execute(task Task) {
+	startTime := time.Now()
 	var err error
+
 	for attempt := 0; attempt <= d.cfg.MaxRetries; attempt++ {
+		d.logger.Debug("job_processing", "job_name", task.Name, "attempt", attempt+1)
+
 		err = runJob(task.Name, task.Job, d.cfg.JobTimeout)
 		if err == nil {
+			duration := time.Since(startTime)
 			d.collector.IncProcessed()
+			d.logger.Info("job_completed",
+				"job_name", task.Name,
+				"status", "success",
+				"duration_ms", duration.Milliseconds())
 			return
 		}
 
 		if attempt < d.cfg.MaxRetries {
 			d.collector.IncRetried()
 			delay := retryDelay(d.cfg.RetryDelay, attempt, d.cfg.BackoffStrategy)
+			d.logger.Info("job_retry",
+				"job_name", task.Name,
+				"attempt", attempt+1,
+				"error", err.Error(),
+				"retry_delay_ms", delay.Milliseconds())
+
 			if delay > 0 {
 				select {
 				case <-time.After(delay):
@@ -310,13 +355,27 @@ func (d *Dispatcher) execute(task Task) {
 				case <-d.quit:
 					// dispatcher is shutting down; abandon remaining retries
 					d.collector.IncFailed()
+					duration := time.Since(startTime)
+					d.logger.Warn("job_abandoned",
+						"job_name", task.Name,
+						"attempt", attempt+1,
+						"reason", "dispatcher_shutdown",
+						"duration_ms", duration.Milliseconds())
 					return
 				}
 			}
 		}
 	}
 
+	// All retries exhausted
+	duration := time.Since(startTime)
 	d.collector.IncFailed()
+	d.logger.Error("job_failed",
+		"job_name", task.Name,
+		"attempt", d.cfg.MaxRetries+1,
+		"error", err.Error(),
+		"duration_ms", duration.Milliseconds(),
+		"status", "final_failure")
 }
 
 // runJob executes a job with the specified timeout and recovers from any panics.

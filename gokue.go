@@ -13,6 +13,7 @@ import (
 	"github.com/zt4ff/gokue/config"
 	"github.com/zt4ff/gokue/dispatcher"
 	jobpkg "github.com/zt4ff/gokue/job"
+	"github.com/zt4ff/gokue/logging"
 	"github.com/zt4ff/gokue/stats"
 )
 
@@ -30,6 +31,8 @@ type Queue struct {
 	dispatcher *dispatcher.Dispatcher
 	// collector tracks execution statistics.
 	collector *stats.Collector
+	// logger provides structured logging.
+	logger logging.Logger
 	// jobs is a map of registered job names.
 	jobs map[string]struct{}
 	// mu protects the jobs map.
@@ -85,9 +88,28 @@ func WithShutdownTimeout(timeout time.Duration) Option {
 	}
 }
 
+// QueueLoggerOption sets the logger for a Queue.
+// This is separate from the regular Option type since it's not part of Config.
+type QueueLoggerOption func(*logging.Logger)
+
+// WithLogger returns an Option that sets the logger for the queue.
+func WithLogger(logger logging.Logger) QueueLoggerOption {
+	return func(target *logging.Logger) {
+		*target = logger
+	}
+}
+
 // NewQueue creates and returns a new Queue with the provided configuration options.
 // It returns an error if the configuration is invalid.
+// The queue will use a NoOpLogger (logging disabled) by default.
 func NewQueue(options ...Option) (*Queue, error) {
+	return NewQueueWithLogger(nil, options...)
+}
+
+// NewQueueWithLogger creates and returns a new Queue with the provided configuration options and logger.
+// It returns an error if the configuration is invalid.
+// If logger is nil, a NoOpLogger (logging disabled) will be used.
+func NewQueueWithLogger(logger logging.Logger, options ...Option) (*Queue, error) {
 	queueConfig := config.Default()
 	for _, option := range options {
 		if option != nil {
@@ -99,13 +121,18 @@ func NewQueue(options ...Option) (*Queue, error) {
 		return nil, err
 	}
 
+	if logger == nil {
+		logger = &logging.NoOpLogger{}
+	}
+
 	collector := stats.NewCollector()
 	queue := &Queue{
 		config:    queueConfig,
 		collector: collector,
+		logger:    logger,
 		jobs:      make(map[string]struct{}),
 	}
-	queue.dispatcher = dispatcher.New(queueConfig, collector)
+	queue.dispatcher = dispatcher.NewWithLogger(queueConfig, collector, logger)
 
 	return queue, nil
 }

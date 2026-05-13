@@ -9,6 +9,7 @@ import (
 
 	"github.com/zt4ff/gokue/config"
 	"github.com/zt4ff/gokue/dispatcher"
+	"github.com/zt4ff/gokue/logging"
 )
 
 func setup(t *testing.T) *dispatcher.Dispatcher {
@@ -688,4 +689,308 @@ type testJob struct {
 
 func (j *testJob) Process(ctx context.Context) error {
 	return j.process(ctx)
+}
+
+// ============================================================================
+// Structured Logging Tests (Task 6.2)
+// ============================================================================
+
+// recordingLogger records all log calls for verification in tests.
+type recordingLogger struct {
+	logs []*logRecord
+}
+
+type logRecord struct {
+	msg    string
+	fields []interface{}
+}
+
+func (rl *recordingLogger) Log(level logging.Level, message string, fields ...interface{}) {
+	rl.logs = append(rl.logs, &logRecord{
+		msg:    message,
+		fields: append([]interface{}{}, fields...),
+	})
+}
+
+func (rl *recordingLogger) Debug(message string, fields ...interface{}) {
+	rl.Log(logging.LevelDebug, message, fields...)
+}
+
+func (rl *recordingLogger) Info(message string, fields ...interface{}) {
+	rl.Log(logging.LevelInfo, message, fields...)
+}
+
+func (rl *recordingLogger) Warn(message string, fields ...interface{}) {
+	rl.Log(logging.LevelWarn, message, fields...)
+}
+
+func (rl *recordingLogger) Error(message string, fields ...interface{}) {
+	rl.Log(logging.LevelError, message, fields...)
+}
+
+func (rl *recordingLogger) findLog(msg string) *logRecord {
+	for _, log := range rl.logs {
+		if log.msg == msg {
+			return log
+		}
+	}
+	return nil
+}
+
+// TestLoggingOnJobSubmit verifies logging occurs on job submission.
+func TestLoggingOnJobSubmit(t *testing.T) {
+	cfg := config.Config{
+		Backend:         config.InMemory,
+		BackoffStrategy: config.Exponential,
+		QueueSize:       10,
+		WorkerCount:     1,
+		MaxRetries:      0,
+		JobTimeout:      5 * time.Second,
+		RetryDelay:      50 * time.Millisecond,
+		ShutdownTimeout: 5 * time.Second,
+	}
+
+	logger := &recordingLogger{}
+	d := dispatcher.NewWithLogger(cfg, nil, logger)
+	defer d.Close(context.Background())
+
+	// Submit a job
+	task := dispatcher.Task{
+		Name: "test-job",
+		Job:  &successJob{},
+	}
+	err := d.Submit(context.Background(), task)
+	if err != nil {
+		t.Fatalf("submit failed: %v", err)
+	}
+
+	// Give logger time to process
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify submission was logged
+	if submitted := logger.findLog("job_submitted"); submitted == nil {
+		t.Error("expected job_submitted log")
+	}
+}
+
+// TestLoggingOnJobRejection verifies logging occurs when job submission is rejected.
+func TestLoggingOnJobRejection(t *testing.T) {
+	cfg := config.Config{
+		Backend:         config.InMemory,
+		BackoffStrategy: config.Exponential,
+		QueueSize:       10,
+		WorkerCount:     1,
+		MaxRetries:      0,
+		JobTimeout:      5 * time.Second,
+		RetryDelay:      50 * time.Millisecond,
+		ShutdownTimeout: 5 * time.Second,
+	}
+
+	logger := &recordingLogger{}
+	d := dispatcher.NewWithLogger(cfg, nil, logger)
+
+	// Close dispatcher
+	d.Close(context.Background())
+
+	// Try to submit job
+	task := dispatcher.Task{
+		Name: "test-job",
+		Job:  &successJob{},
+	}
+	_ = d.Submit(context.Background(), task)
+
+	// Verify rejection was logged
+	if rejected := logger.findLog("job_submission_rejected"); rejected == nil {
+		t.Error("expected job_submission_rejected log")
+	}
+}
+
+// TestLoggingOnRetry verifies logging occurs during retry attempts.
+func TestLoggingOnRetry(t *testing.T) {
+	cfg := config.Config{
+		Backend:         config.InMemory,
+		BackoffStrategy: config.Exponential,
+		QueueSize:       10,
+		WorkerCount:     1,
+		MaxRetries:      2,
+		JobTimeout:      5 * time.Second,
+		RetryDelay:      50 * time.Millisecond,
+		ShutdownTimeout: 5 * time.Second,
+	}
+
+	logger := &recordingLogger{}
+	d := dispatcher.NewWithLogger(cfg, nil, logger)
+	defer d.Close(context.Background())
+
+	// Submit a job that fails
+	attempts := &atomic.Int32{}
+	failingJob := &failJob{attempts: attempts}
+
+	task := dispatcher.Task{
+		Name: "test-job",
+		Job:  failingJob,
+	}
+	err := d.Submit(context.Background(), task)
+	if err != nil {
+		t.Fatalf("submit failed: %v", err)
+	}
+
+	// Wait for retries
+	time.Sleep(500 * time.Millisecond)
+
+	// Verify retry was logged
+	if retry := logger.findLog("job_retry"); retry == nil {
+		t.Error("expected job_retry log")
+	}
+
+	// Verify failure was logged
+	if failed := logger.findLog("job_failed"); failed == nil {
+		t.Error("expected job_failed log")
+	}
+}
+
+// TestLoggingOnSuccess verifies logging occurs on job success.
+func TestLoggingOnSuccess(t *testing.T) {
+	cfg := config.Config{
+		Backend:         config.InMemory,
+		BackoffStrategy: config.Exponential,
+		QueueSize:       10,
+		WorkerCount:     1,
+		MaxRetries:      0,
+		JobTimeout:      5 * time.Second,
+		RetryDelay:      50 * time.Millisecond,
+		ShutdownTimeout: 5 * time.Second,
+	}
+
+	logger := &recordingLogger{}
+	d := dispatcher.NewWithLogger(cfg, nil, logger)
+	defer d.Close(context.Background())
+
+	task := dispatcher.Task{
+		Name: "success-job",
+		Job:  &successJob{},
+	}
+	err := d.Submit(context.Background(), task)
+	if err != nil {
+		t.Fatalf("submit failed: %v", err)
+	}
+
+	// Wait for completion
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify success was logged
+	if success := logger.findLog("job_completed"); success == nil {
+		t.Error("expected job_completed log with success status")
+	}
+}
+
+// TestLoggingOnCloseStart verifies logging occurs at close start.
+func TestLoggingOnCloseStart(t *testing.T) {
+	cfg := config.Config{
+		Backend:         config.InMemory,
+		BackoffStrategy: config.Exponential,
+		QueueSize:       10,
+		WorkerCount:     1,
+		MaxRetries:      0,
+		JobTimeout:      5 * time.Second,
+		RetryDelay:      50 * time.Millisecond,
+		ShutdownTimeout: 5 * time.Second,
+	}
+
+	logger := &recordingLogger{}
+	d := dispatcher.NewWithLogger(cfg, nil, logger)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	d.Close(ctx)
+
+	// Verify close start was logged
+	if closeStart := logger.findLog("dispatcher_close_started"); closeStart == nil {
+		t.Error("expected dispatcher_close_started log")
+	}
+
+	// Verify close complete was logged
+	if closeComplete := logger.findLog("dispatcher_close_completed"); closeComplete == nil {
+		t.Error("expected dispatcher_close_completed log")
+	}
+}
+
+// TestLoggingContainsRequiredFields verifies log records contain required fields.
+func TestLoggingContainsRequiredFields(t *testing.T) {
+	cfg := config.Config{
+		Backend:         config.InMemory,
+		BackoffStrategy: config.Exponential,
+		QueueSize:       10,
+		WorkerCount:     1,
+		MaxRetries:      0,
+		JobTimeout:      5 * time.Second,
+		RetryDelay:      50 * time.Millisecond,
+		ShutdownTimeout: 5 * time.Second,
+	}
+
+	logger := &recordingLogger{}
+	d := dispatcher.NewWithLogger(cfg, nil, logger)
+	defer d.Close(context.Background())
+
+	task := dispatcher.Task{
+		Name: "test-job",
+		Job:  &successJob{},
+	}
+	_ = d.Submit(context.Background(), task)
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Find the job_submitted log
+	submitted := logger.findLog("job_submitted")
+	if submitted == nil {
+		t.Fatal("expected job_submitted log")
+	}
+
+	// Verify job_name field is present
+	hasJobName := false
+	for i := 0; i < len(submitted.fields); i += 2 {
+		if i+1 < len(submitted.fields) && submitted.fields[i] == "job_name" {
+			hasJobName = true
+			break
+		}
+	}
+	if !hasJobName {
+		t.Error("expected job_name field in log")
+	}
+}
+
+// TestLoggingWithNilLogger verifies dispatcher works with nil logger (NoOpLogger).
+func TestLoggingWithNilLogger(t *testing.T) {
+	cfg := config.Config{
+		Backend:         config.InMemory,
+		BackoffStrategy: config.Exponential,
+		QueueSize:       10,
+		WorkerCount:     1,
+		MaxRetries:      0,
+		JobTimeout:      5 * time.Second,
+		RetryDelay:      50 * time.Millisecond,
+		ShutdownTimeout: 5 * time.Second,
+	}
+
+	// Create dispatcher without logger (should use NoOpLogger)
+	d := dispatcher.New(cfg, nil)
+	defer d.Close(context.Background())
+
+	// Should work without panicking
+	task := dispatcher.Task{
+		Name: "test-job",
+		Job:  &successJob{},
+	}
+	err := d.Submit(context.Background(), task)
+	if err != nil {
+		t.Fatalf("submit failed: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	stats := d.Stats()
+	if stats.Processed != 1 {
+		t.Errorf("expected 1 processed, got %d", stats.Processed)
+	}
 }
