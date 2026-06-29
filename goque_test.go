@@ -107,7 +107,10 @@ func TestUnkownJob(t *testing.T) {
 		t.Errorf("err shouldn't be nil")
 	}
 
-	queue.RegisterJob("email runner")
+	err = queue.RegisterJob("email runner")
+	if err != nil {
+		t.Fatalf("RegisterJob failed: %v", err)
+	}
 
 	err = queue.Submit(context.Background(), "non-existent-job", job{t: t})
 	if err == nil {
@@ -325,3 +328,4 @@ func (j *blockingJobImpl) Process(ctx context.Context) error {
 	<-j.blockChan
 	return nil
 }
+

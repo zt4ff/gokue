@@ -43,7 +43,9 @@ func main() {
 
 	user := Email{email: "johndoe@gmail.com", message: "This is testing the email"}
 
-	q.RegisterJob("send email")
+	if err := q.RegisterJob("send email"); err != nil {
+		panic(err)
+	}
 
 	if err := q.Submit(context.Background(), "send email", user); err != nil {
 		panic(err)

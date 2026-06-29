@@ -137,20 +137,22 @@ func NewQueueWithLogger(logger logging.Logger, options ...Option) (*Queue, error
 	return queue, nil
 }
 
-// RegisterJob registers a job name with the queue. Jobs should be registered before submission if enforced.
-func (q *Queue) RegisterJob(name string) {
+// RegisterJob validates and registers a job name with the queue.
+// Jobs should be registered before submission if enforcement is active.
+func (q *Queue) RegisterJob(name string) error {
 	if q == nil {
-		return
+		return errors.New("queue is nil")
 	}
 
 	name = strings.TrimSpace(name)
-	if name == "" {
-		return
+	if err := ValidateJobName(name); err != nil {
+		return err
 	}
 
 	q.mu.Lock()
 	q.jobs[name] = struct{}{}
 	q.mu.Unlock()
+	return nil
 }
 
 // Submit adds a job to the queue, blocking until the job is enqueued or the context is cancelled.
@@ -168,6 +170,10 @@ func (q *Queue) Submit(ctx context.Context, name string, task Job) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		name = q.jobName(task)
+	}
+
+	if err := ValidateJobName(name); err != nil {
+		return err
 	}
 
 	q.mu.RLock()
@@ -196,6 +202,10 @@ func (q *Queue) TrySubmit(ctx context.Context, name string, task Job) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		name = q.jobName(task)
+	}
+
+	if err := ValidateJobName(name); err != nil {
+		return err
 	}
 
 	q.mu.RLock()
@@ -239,7 +249,7 @@ func (q *Queue) Stats() stats.Snapshot {
 // jobName returns the name of a job based on its type reflection.
 func (q *Queue) jobName(task Job) string {
 	if task == nil {
-		return "anonymous-job"
+		return "anonymous"
 	}
 
 	typ := reflect.TypeOf(task)
@@ -250,5 +260,5 @@ func (q *Queue) jobName(task Job) string {
 		return typ.Name()
 	}
 
-	return fmt.Sprintf("%T", task)
+	return "anonymous"
 }
