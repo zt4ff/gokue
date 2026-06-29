@@ -1,5 +1,8 @@
 # gokue
 
+[![CI](https://github.com/zt4ff/gokue/actions/workflows/ci.yml/badge.svg)](https://github.com/zt4ff/gokue/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/zt4ff/gokue/branch/main/graph/badge.svg)](https://codecov.io/gh/zt4ff/gokue)
+
 `gokue` is a bounded in-memory job queue with worker pools, per-job timeouts, retries, and atomic runtime stats.
 
 ## Features
