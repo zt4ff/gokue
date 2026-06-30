@@ -23,6 +23,23 @@ type Job = jobpkg.Job
 // Option is a functional option for configuring a Queue.
 type Option func(*config.Config)
 
+// SubmitOption is a functional option for configuring a single job submission.
+type SubmitOption func(*dispatcher.Task)
+
+// MaxRetries returns a SubmitOption that overrides the global MaxRetries for this job.
+func MaxRetries(maxRetries int) SubmitOption {
+	return func(t *dispatcher.Task) {
+		t.MaxRetries = &maxRetries
+	}
+}
+
+// RetryDelay returns a SubmitOption that overrides the global RetryDelay for this job.
+func RetryDelay(delay time.Duration) SubmitOption {
+	return func(t *dispatcher.Task) {
+		t.RetryDelay = &delay
+	}
+}
+
 // Queue manages job submission, execution, and statistics using a pool of workers.
 type Queue struct {
 	// config holds the queue configuration.
@@ -164,7 +181,8 @@ func (q *Queue) RegisterJob(name string) error {
 }
 
 // Submit adds a job to the queue, blocking until the job is enqueued or the context is cancelled.
-func (q *Queue) Submit(ctx context.Context, name string, task Job) error {
+// SubmitOption arguments allow per-job overrides for MaxRetries and RetryDelay.
+func (q *Queue) Submit(ctx context.Context, name string, task Job, opts ...SubmitOption) error {
 	if q == nil {
 		return errors.New("queue is nil")
 	}
@@ -192,11 +210,18 @@ func (q *Queue) Submit(ctx context.Context, name string, task Job) error {
 		return fmt.Errorf("job %q is not registered", name)
 	}
 
-	return q.dispatcher.Submit(ctx, dispatcher.Task{Name: name, Job: task})
+	t := dispatcher.Task{Name: name, Job: task}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&t)
+		}
+	}
+	return q.dispatcher.Submit(ctx, t)
 }
 
 // TrySubmit attempts to add a job to the queue without blocking.
-func (q *Queue) TrySubmit(ctx context.Context, name string, task Job) error {
+// SubmitOption arguments allow per-job overrides for MaxRetries and RetryDelay.
+func (q *Queue) TrySubmit(ctx context.Context, name string, task Job, opts ...SubmitOption) error {
 	if q == nil {
 		return errors.New("queue is nil")
 	}
@@ -224,15 +249,22 @@ func (q *Queue) TrySubmit(ctx context.Context, name string, task Job) error {
 		return fmt.Errorf("job %q is not registered", name)
 	}
 
-	return q.dispatcher.TrySubmit(ctx, dispatcher.Task{Name: name, Job: task})
+	t := dispatcher.Task{Name: name, Job: task}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&t)
+		}
+	}
+	return q.dispatcher.TrySubmit(ctx, t)
 }
 
 // Run submits a job to the queue using a background context.
-func (q *Queue) Run(task Job) {
+// SubmitOption arguments allow per-job overrides for MaxRetries and RetryDelay.
+func (q *Queue) Run(task Job, opts ...SubmitOption) {
 	if q == nil {
 		return
 	}
-	_ = q.Submit(context.Background(), q.jobName(task), task)
+	_ = q.Submit(context.Background(), q.jobName(task), task, opts...)
 }
 
 // Close gracefully shuts down the queue and waits for all workers to finish processing.

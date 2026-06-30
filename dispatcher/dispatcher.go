@@ -50,6 +50,10 @@ type Task struct {
 	Job job.Job
 	// SubmittedAt is the timestamp when the task was submitted.
 	SubmittedAt time.Time
+	// MaxRetries overrides the global MaxRetries for this task when non-nil.
+	MaxRetries *int
+	// RetryDelay overrides the global RetryDelay for this task when non-nil.
+	RetryDelay *time.Duration
 }
 
 // Dispatcher manages a pool of workers to execute tasks with configurable retry logic
@@ -316,6 +320,7 @@ func (d *Dispatcher) worker() {
 
 // execute runs a task with retry logic based on the dispatcher's configuration.
 // It attempts to execute the job up to MaxRetries times with configurable backoff delays.
+// Per-task MaxRetries and RetryDelay overrides are honored when set on the Task.
 // The retry sleep is interruptible via the dispatcher's quit channel so that Close
 // is responsive. Statistics are updated after each execution attempt.
 //
@@ -325,7 +330,17 @@ func (d *Dispatcher) execute(task Task) {
 	startTime := time.Now()
 	var err error
 
-	for attempt := 0; attempt <= d.cfg.MaxRetries; attempt++ {
+	maxRetries := d.cfg.MaxRetries
+	if task.MaxRetries != nil {
+		maxRetries = *task.MaxRetries
+	}
+
+	retryBaseDelay := d.cfg.RetryDelay
+	if task.RetryDelay != nil {
+		retryBaseDelay = *task.RetryDelay
+	}
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
 		d.logger.Debug("job_processing", "job_name", task.Name, "attempt", attempt+1)
 
 		err = runJob(task.Name, task.Job, d.cfg.JobTimeout)
@@ -339,9 +354,9 @@ func (d *Dispatcher) execute(task Task) {
 			return
 		}
 
-		if attempt < d.cfg.MaxRetries {
+		if attempt < maxRetries {
 			d.collector.IncRetried()
-			delay := retryDelay(d.cfg.RetryDelay, d.cfg.MaxRetryDelay, attempt, d.cfg.BackoffStrategy)
+			delay := retryDelay(retryBaseDelay, d.cfg.MaxRetryDelay, attempt, d.cfg.BackoffStrategy)
 			d.logger.Info("job_retry",
 				"job_name", task.Name,
 				"attempt", attempt+1,
@@ -372,7 +387,7 @@ func (d *Dispatcher) execute(task Task) {
 	d.collector.IncFailed()
 	d.logger.Error("job_failed",
 		"job_name", task.Name,
-		"attempt", d.cfg.MaxRetries+1,
+		"attempt", maxRetries+1,
 		"error", err.Error(),
 		"duration_ms", duration.Milliseconds(),
 		"status", "final_failure")
