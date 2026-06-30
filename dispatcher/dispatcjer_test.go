@@ -3,6 +3,7 @@ package dispatcher_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -699,6 +700,7 @@ func (j *testJob) Process(ctx context.Context) error {
 
 // recordingLogger records all log calls for verification in tests.
 type recordingLogger struct {
+	mu   sync.Mutex
 	logs []*logRecord
 }
 
@@ -708,10 +710,12 @@ type logRecord struct {
 }
 
 func (rl *recordingLogger) Log(level logging.Level, message string, fields ...interface{}) {
+	rl.mu.Lock()
 	rl.logs = append(rl.logs, &logRecord{
 		msg:    message,
 		fields: append([]interface{}{}, fields...),
 	})
+	rl.mu.Unlock()
 }
 
 func (rl *recordingLogger) Debug(message string, fields ...interface{}) {
@@ -731,6 +735,8 @@ func (rl *recordingLogger) Error(message string, fields ...interface{}) {
 }
 
 func (rl *recordingLogger) findLog(msg string) *logRecord {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
 	for _, log := range rl.logs {
 		if log.msg == msg {
 			return log
