@@ -185,6 +185,7 @@ func TestSubmitWithNilContext(t *testing.T) {
 	}
 
 	successJob := &successJob{processed: &atomic.Bool{}}
+	//lint:ignore SA1012 Intentionally passing a nil context to verify validation.
 	err = queue.Submit(nil, "test-job", successJob)
 	if err == nil {
 		t.Error("expected error when context is nil")

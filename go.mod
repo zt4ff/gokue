@@ -1,3 +1,3 @@
 module github.com/zt4ff/gokue
 
-go 1.25.7
+go 1.22.2

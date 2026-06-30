@@ -78,6 +78,7 @@ func TestSubmitWithNilContext(t *testing.T) {
 		Job:  &successJob{},
 	}
 
+	//lint:ignore SA1012 Intentionally passing a nil context to verify validation.
 	err := d.Submit(nil, task)
 	if err == nil {
 		t.Error("expected ErrNilCtx, got nil")
@@ -454,6 +455,7 @@ func TestCloseWithInvalidModeReturnsError(t *testing.T) {
 func TestCloseWithNilContextReturnsError(t *testing.T) {
 	d := setup(t)
 
+	//lint:ignore SA1012 Intentionally passing a nil context to verify validation.
 	err := d.Close(nil)
 
 	if err == nil {

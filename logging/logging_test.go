@@ -4,17 +4,6 @@ import (
 	"testing"
 )
 
-// TestLoggerInterface verifies that the Logger interface can be implemented.
-func TestLoggerInterface(t *testing.T) {
-	var logger Logger
-	var noop Logger = &NoOpLogger{}
-	logger = noop
-
-	if logger == nil {
-		t.Error("logger should not be nil")
-	}
-}
-
 // TestNoOpLogger verifies NoOpLogger implements the Logger interface.
 func TestNoOpLogger(t *testing.T) {
 	logger := &NoOpLogger{}
