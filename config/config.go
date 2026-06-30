@@ -83,8 +83,11 @@ type Config struct {
 	MaxRetries int
 	// JobTimeout is the maximum duration of time a job should run.
 	JobTimeout time.Duration
-	// RetryDelay is the amount of time between retries.
+	// RetryDelay is the base amount of time between retries.
 	RetryDelay time.Duration
+	// MaxRetryDelay is the maximum delay between retries (capped exponential backoff).
+	// A zero or negative value means no cap.
+	MaxRetryDelay time.Duration
 	// BackoffStrategy is the strategy to handle resilience and how to calculate retry time.
 	BackoffStrategy string
 	// ShutdownTimeout is the maximum duration to wait for graceful shutdown.
@@ -103,6 +106,7 @@ func Default() Config {
 		MaxRetries:      3,
 		JobTimeout:      30 * time.Second,
 		RetryDelay:      250 * time.Millisecond,
+		MaxRetryDelay:   30 * time.Second,
 		ShutdownTimeout: 10 * time.Second,
 		BackoffStrategy: Exponential,
 	}
@@ -139,6 +143,9 @@ func (c *Config) Validate() error {
 	}
 	if c.RetryDelay < 0 {
 		return fmt.Errorf("%w: retry delay cannot be negative", ErrInvalidConfig)
+	}
+	if c.MaxRetryDelay < 0 {
+		return fmt.Errorf("%w: max retry delay cannot be negative", ErrInvalidConfig)
 	}
 
 	return nil

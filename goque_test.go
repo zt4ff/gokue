@@ -84,6 +84,10 @@ func TestNewQueueInvalidConfigs(t *testing.T) {
 			config: func(a any) Option { return WithRetryDelay(a.(time.Duration)) },
 			arg:    time.Second * -1,
 		},
+		"with max retry delay": {
+			config: func(a any) Option { return WithMaxRetryDelay(a.(time.Duration)) },
+			arg:    time.Second * -1,
+		},
 		"with shutdown timeout": {
 			config: func(a any) Option { return WithShutdownTimeout(a.(time.Duration)) },
 			arg:    time.Second * -1,

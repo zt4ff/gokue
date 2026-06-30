@@ -74,10 +74,18 @@ func WithJobTimeout(timeout time.Duration) Option {
 	}
 }
 
-// WithRetryDelay returns an Option that sets the delay between retries.
+// WithRetryDelay returns an Option that sets the base delay between retries.
 func WithRetryDelay(delay time.Duration) Option {
 	return func(target *config.Config) {
 		target.RetryDelay = delay
+	}
+}
+
+// WithMaxRetryDelay returns an Option that sets the maximum delay between retries.
+// Exponential backoff will not exceed this value. A zero or negative value means no cap.
+func WithMaxRetryDelay(delay time.Duration) Option {
+	return func(target *config.Config) {
+		target.MaxRetryDelay = delay
 	}
 }
 

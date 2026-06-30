@@ -341,7 +341,7 @@ func (d *Dispatcher) execute(task Task) {
 
 		if attempt < d.cfg.MaxRetries {
 			d.collector.IncRetried()
-			delay := retryDelay(d.cfg.RetryDelay, attempt, d.cfg.BackoffStrategy)
+			delay := retryDelay(d.cfg.RetryDelay, d.cfg.MaxRetryDelay, attempt, d.cfg.BackoffStrategy)
 			d.logger.Info("job_retry",
 				"job_name", task.Name,
 				"attempt", attempt+1,
@@ -402,19 +402,18 @@ func runJob(name string, j job.Job, timeout time.Duration) (err error) {
 }
 
 // retryDelay calculates the delay before the next retry attempt based on the chosen
-// backoff strategy:
+// backoff strategy. Exponential strategies are capped at maxDelay (no cap if <= 0).
 //
 //   - Constant:          base (same delay every attempt)
 //   - Linear:            base * (attempt + 1)  →  1x, 2x, 3x, ...
-//   - Exponential:       base * 2^attempt      →  1x, 2x, 4x, 8x, ...
-//   - ExponentialJitter: Exponential delay + random jitter in [0, exp) to spread
-//     load across retrying clients (full jitter strategy)
+//   - Exponential:       min(maxDelay, base * 2^attempt)  →  1x, 2x, 4x, capped, ...
+//   - ExponentialJitter: random(0, min(maxDelay, base * 2^attempt))  (full jitter)
 //
 // Returns 0 if base <= 0.
 //
 // Note: math/rand global functions are safe for concurrent use in Go 1.20+.
 // For older Go versions, supply a locked per-worker rand.Rand source instead.
-func retryDelay(base time.Duration, attempt int, strategy string) time.Duration {
+func retryDelay(base time.Duration, maxDelay time.Duration, attempt int, strategy string) time.Duration {
 	if base <= 0 {
 		return 0
 	}
@@ -428,16 +427,24 @@ func retryDelay(base time.Duration, attempt int, strategy string) time.Duration 
 		return base * time.Duration(attempt+1)
 
 	case config.Exponential:
-		// base * 2^attempt: 1x, 2x, 4x, 8x, ...
-		multiplier := math.Pow(2, float64(attempt))
-		return time.Duration(float64(base) * multiplier)
+		// base * 2^attempt: 1x, 2x, 4x, 8x, ..., capped at maxDelay.
+		exp := float64(base) * math.Pow(2, float64(attempt))
+		if maxDelay > 0 && exp > float64(maxDelay) {
+			exp = float64(maxDelay)
+		}
+		return time.Duration(exp)
 
 	case config.ExponentialJitter:
-		// Full jitter: jitter is drawn from [0, exp) so it scales with the
-		// exponential component, effectively spreading retries under load.
-		exp := time.Duration(float64(base) * math.Pow(2, float64(attempt)))
-		jitter := time.Duration(rand.Int63n(int64(exp)))
-		return exp + jitter
+		// Full jitter: random delay uniformly drawn from [0, capped_exp) so it
+		// scales with the exponential component and spreads retries under load.
+		exp := float64(base) * math.Pow(2, float64(attempt))
+		if maxDelay > 0 && exp > float64(maxDelay) {
+			exp = float64(maxDelay)
+		}
+		if exp <= 0 {
+			return 0
+		}
+		return time.Duration(rand.Int63n(int64(exp)))
 
 	default:
 		return 0
