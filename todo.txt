@@ -1,0 +1,58 @@
+PHASE 1:
+
+Retry predicates
+
+Per-job-type stat breakdown
+
+Structured log fields
+
+slog adapter
+
+godoc examples
+
+Semver releases + CHANGELOG
+
+PHASE 2:
+
+Backend abstraction interface
+
+In-memory backend impl
+
+Dead-letter queue (DLQ)
+
+Job cancellation
+
+Functional per-submit options
+
+Job priority levels
+
+Idempotency key dedup
+
+Scheduled / delayed jobs
+
+Cron / recurring jobs
+
+Dynamic worker scaling
+
+PHASE 3:
+
+Result futures
+
+Typed generic jobs
+
+Job groups / fanout
+
+Batch submit
+
+Queue health check
+
+Benchmark suite
+
+
+
+
+
+These are all stuffs I need to work on for this project. Review this project well, review the need for a job queue in my developers outside, then in dev.md create
+different sections for each of this work item to be used to create issues in github. It should include the issue name, issue label, a information fo work on the issues, the files related to the issues, the things to do, etc.
+
+Feel free to split any of the work item into more issues and create new issues if needed
