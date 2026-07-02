@@ -1,4 +1,4 @@
-package gokue
+package job
 
 import (
 	"errors"

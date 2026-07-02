@@ -170,7 +170,7 @@ func (q *Queue) RegisterJob(name string) error {
 	}
 
 	name = strings.TrimSpace(name)
-	if err := ValidateJobName(name); err != nil {
+	if err := jobpkg.ValidateJobName(name); err != nil {
 		return err
 	}
 
@@ -198,7 +198,7 @@ func (q *Queue) Submit(ctx context.Context, name string, task Job, opts ...Submi
 		name = q.jobName(task)
 	}
 
-	if err := ValidateJobName(name); err != nil {
+	if err := jobpkg.ValidateJobName(name); err != nil {
 		return err
 	}
 
@@ -237,7 +237,7 @@ func (q *Queue) TrySubmit(ctx context.Context, name string, task Job, opts ...Su
 		name = q.jobName(task)
 	}
 
-	if err := ValidateJobName(name); err != nil {
+	if err := jobpkg.ValidateJobName(name); err != nil {
 		return err
 	}
 
