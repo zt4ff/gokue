@@ -8,6 +8,7 @@ import (
 	"time"
 )
 
+// Memory Type
 const (
 	// InMemory is the configuration to use in-memory backend.
 	InMemory = "in-memory"
@@ -15,6 +16,7 @@ const (
 	MongoDB = "mongo-db"
 )
 
+// Backoff strategy
 const (
 	// Constant is the backoff strategy that retries after a fixed delay.
 	//
@@ -129,21 +131,27 @@ func (c *Config) Validate() error {
 	if c.WorkerCount <= 0 {
 		return fmt.Errorf("%w: worker count must be greater than zero", ErrInvalidConfig)
 	}
+
 	if c.QueueSize <= 0 {
 		return fmt.Errorf("%w: queue size must be greater than zero", ErrInvalidConfig)
 	}
+
 	if c.MaxRetries < 0 {
 		return fmt.Errorf("%w: max retries cannot be negative", ErrInvalidConfig)
 	}
+
 	if c.JobTimeout < 0 {
 		return fmt.Errorf("%w: job timeout cannot be negative", ErrInvalidConfig)
 	}
+
 	if c.ShutdownTimeout < 0 {
 		return fmt.Errorf("%w: shutdown timeout cannot be negative", ErrInvalidConfig)
 	}
+
 	if c.RetryDelay < 0 {
 		return fmt.Errorf("%w: retry delay cannot be negative", ErrInvalidConfig)
 	}
+
 	if c.MaxRetryDelay < 0 {
 		return fmt.Errorf("%w: max retry delay cannot be negative", ErrInvalidConfig)
 	}
