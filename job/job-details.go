@@ -4,7 +4,6 @@ package job
 import "time"
 
 // ID is a unique identifier for a job execution.
-// ID is a unique identifier for a job execution.
 type ID string
 
 // Name is the name/label for a job.
@@ -19,7 +18,7 @@ type JobDetails struct {
 	// Name is the name of the job.
 	Name Name
 	// Attempts is the number of times this job has been attempted.
-	Attempts int
+	Attempts uint
 	// CreatedAt is the timestamp when the job was created.
 	CreatedAt time.Time
 	// StartedAt is the timestamp when the job execution started.

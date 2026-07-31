@@ -3,6 +3,7 @@ package job
 import (
 	"errors"
 	"fmt"
+	"unicode"
 )
 
 var (
@@ -25,7 +26,7 @@ func ValidateJobName(name string) error {
 		return fmt.Errorf("%w: job name must be at most %d characters (got %d)", ErrJobNameTooLong, maxJobNameLength, len(name))
 	}
 	for _, r := range name {
-		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' || r == ' ') {
+		if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_' || r == '.' || r == ' ') {
 			return fmt.Errorf("%w: job name contains invalid character %q; only letters, digits, hyphens, underscores, dots, and spaces are allowed", ErrInvalidJobName, r)
 		}
 	}
