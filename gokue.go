@@ -4,10 +4,6 @@ package gokue
 import (
 	"context"
 	"errors"
-	"fmt"
-	"reflect"
-	"strings"
-	"sync"
 	"time"
 
 	"github.com/zt4ff/gokue/config"
@@ -50,10 +46,6 @@ type Queue struct {
 	collector *stats.Collector
 	// logger provides structured logging.
 	logger logging.Logger
-	// jobs is a map of registered job names.
-	jobs map[string]struct{}
-	// mu protects the jobs map.
-	mu sync.RWMutex
 }
 
 // WithConfig returns an Option that sets the entire configuration.
@@ -155,34 +147,16 @@ func NewQueueWithLogger(logger logging.Logger, options ...Option) (*Queue, error
 		config:    queueConfig,
 		collector: collector,
 		logger:    logger,
-		jobs:      make(map[string]struct{}),
 	}
 	queue.dispatcher = dispatcher.NewWithLogger(queueConfig, collector, logger)
 
 	return queue, nil
 }
 
-// RegisterJob validates and registers a job name with the queue.
-// Jobs should be registered before submission if enforcement is active.
-func (q *Queue) RegisterJob(name string) error {
-	if q == nil {
-		return errors.New("queue is nil")
-	}
-
-	name = strings.TrimSpace(name)
-	if err := jobpkg.ValidateJobName(name); err != nil {
-		return err
-	}
-
-	q.mu.Lock()
-	q.jobs[name] = struct{}{}
-	q.mu.Unlock()
-	return nil
-}
-
 // Submit adds a job to the queue, blocking until the job is enqueued or the context is cancelled.
+// The job's name is derived from its type, or from its Name method if it implements job.NamedJob.
 // SubmitOption arguments allow per-job overrides for MaxRetries and RetryDelay.
-func (q *Queue) Submit(ctx context.Context, name string, task Job, opts ...SubmitOption) error {
+func (q *Queue) Submit(ctx context.Context, task Job, opts ...SubmitOption) error {
 	if q == nil {
 		return errors.New("queue is nil")
 	}
@@ -193,24 +167,7 @@ func (q *Queue) Submit(ctx context.Context, name string, task Job, opts ...Submi
 		return errors.New("context cannot be nil")
 	}
 
-	name = strings.TrimSpace(name)
-	if name == "" {
-		name = q.jobName(task)
-	}
-
-	if err := jobpkg.ValidateJobName(name); err != nil {
-		return err
-	}
-
-	q.mu.RLock()
-	_, registered := q.jobs[name]
-	registeredCount := len(q.jobs)
-	q.mu.RUnlock()
-	if registeredCount > 0 && !registered {
-		return fmt.Errorf("job %q is not registered", name)
-	}
-
-	t := dispatcher.Task{Name: name, Job: task}
+	t := dispatcher.Task{Name: jobpkg.NameOf(task), Job: task}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&t)
@@ -220,8 +177,9 @@ func (q *Queue) Submit(ctx context.Context, name string, task Job, opts ...Submi
 }
 
 // TrySubmit attempts to add a job to the queue without blocking.
+// The job's name is derived from its type, or from its Name method if it implements job.NamedJob.
 // SubmitOption arguments allow per-job overrides for MaxRetries and RetryDelay.
-func (q *Queue) TrySubmit(ctx context.Context, name string, task Job, opts ...SubmitOption) error {
+func (q *Queue) TrySubmit(ctx context.Context, task Job, opts ...SubmitOption) error {
 	if q == nil {
 		return errors.New("queue is nil")
 	}
@@ -232,24 +190,7 @@ func (q *Queue) TrySubmit(ctx context.Context, name string, task Job, opts ...Su
 		return errors.New("context cannot be nil")
 	}
 
-	name = strings.TrimSpace(name)
-	if name == "" {
-		name = q.jobName(task)
-	}
-
-	if err := jobpkg.ValidateJobName(name); err != nil {
-		return err
-	}
-
-	q.mu.RLock()
-	_, registered := q.jobs[name]
-	registeredCount := len(q.jobs)
-	q.mu.RUnlock()
-	if registeredCount > 0 && !registered {
-		return fmt.Errorf("job %q is not registered", name)
-	}
-
-	t := dispatcher.Task{Name: name, Job: task}
+	t := dispatcher.Task{Name: jobpkg.NameOf(task), Job: task}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&t)
@@ -259,12 +200,13 @@ func (q *Queue) TrySubmit(ctx context.Context, name string, task Job, opts ...Su
 }
 
 // Run submits a job to the queue using a background context.
+// The job's name is derived from its type, or from its Name method if it implements job.NamedJob.
 // SubmitOption arguments allow per-job overrides for MaxRetries and RetryDelay.
 func (q *Queue) Run(task Job, opts ...SubmitOption) {
 	if q == nil {
 		return
 	}
-	_ = q.Submit(context.Background(), q.jobName(task), task, opts...)
+	_ = q.Submit(context.Background(), task, opts...)
 }
 
 // Close gracefully shuts down the queue and waits for all workers to finish processing.
@@ -284,21 +226,4 @@ func (q *Queue) Stats() stats.Snapshot {
 		return stats.Snapshot{}
 	}
 	return q.collector.Snapshot()
-}
-
-// jobName returns the name of a job based on its type reflection.
-func (q *Queue) jobName(task Job) string {
-	if task == nil {
-		return "anonymous"
-	}
-
-	typ := reflect.TypeOf(task)
-	for typ.Kind() == reflect.Ptr {
-		typ = typ.Elem()
-	}
-	if typ.Name() != "" {
-		return typ.Name()
-	}
-
-	return "anonymous"
 }

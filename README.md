@@ -16,21 +16,68 @@
 ## Basic Usage
 
 ```go
-q, err := gokue.NewQueue(
-	gokue.WithWorkerCount(4),
-	gokue.WithQueueSize(1024),
-	gokue.WithMaxRetries(3),
-	gokue.WithJobTimeout(30*time.Second),
+package main
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/zt4ff/gokue"
 )
-if err != nil {
-	return err
+
+// EmailJob implements the gokue.Job interface. Process returns nil on
+// success and an error to trigger a retry (up to MaxRetries).
+type EmailJob struct {
+	To   string
+	Body string
 }
-defer q.Close(context.Background())
 
-q.RegisterJob("send email")
+func (j EmailJob) Process(ctx context.Context) error {
+	// Check for cancellation/timeout before doing work.
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	fmt.Printf("sending email to %s\n", j.To)
+	return nil
+}
 
-if err := q.Submit(context.Background(), "send email", myJob); err != nil {
-	return err
+func main() {
+	// Create a queue with 4 workers and retries.
+	q, err := gokue.NewQueue(
+		gokue.WithWorkerCount(4),
+		gokue.WithQueueSize(1024),
+		gokue.WithMaxRetries(3),
+		gokue.WithJobTimeout(30*time.Second),
+		gokue.WithRetryDelay(250*time.Millisecond),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	// Submit a job. The job's name is derived from its type (EmailJob).
+	// This blocks until the job is enqueued or ctx is done.
+	err = q.Submit(context.Background(), EmailJob{
+		To:   "user@example.com",
+		Body: "Hello from gokue",
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	// Inspect runtime stats.
+	stats := q.Stats()
+	fmt.Printf("enqueued: %d, processed: %d, failed: %d\n",
+		stats.Enqueued, stats.Processed, stats.Failed)
+
+	// Gracefully shut down: drain in-flight jobs or time out after 5s.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := q.Close(shutdownCtx); err != nil {
+		panic(err)
+	}
 }
 ```
 
@@ -38,6 +85,21 @@ if err := q.Submit(context.Background(), "send email", myJob); err != nil {
 
 - `Submit` blocks until the job is accepted or the context is canceled.
 - `TrySubmit` returns immediately with `dispatcher.ErrQueueFull` when the queue has no capacity.
+- `Run` submits with a background context.
+
+## Job Names
+
+Job names are derived from the job's type, so no registration or string identifiers are needed. To use a stable custom name (e.g. to keep identity across type renames), implement the optional `Name()` method:
+
+```go
+type EmailJob struct{ ... }
+
+func (j EmailJob) Process(ctx context.Context) error { ... }
+
+func (j EmailJob) Name() string { return "send email" }
+```
+
+Jobs that don't implement `Name()` are identified by their type name; anonymous types resolve to `"anonymous"`.
 
 ## Shutdown
 

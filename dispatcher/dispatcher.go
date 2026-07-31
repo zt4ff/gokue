@@ -135,6 +135,9 @@ func (d *Dispatcher) Submit(ctx context.Context, task Task) error {
 	if task.Job == nil {
 		return ErrNilJob
 	}
+	if task.Name == "" {
+		task.Name = job.NameOf(task.Job)
+	}
 	if task.SubmittedAt.IsZero() {
 		task.SubmittedAt = time.Now().UTC()
 	}
@@ -168,6 +171,9 @@ func (d *Dispatcher) TrySubmit(ctx context.Context, task Task) error {
 	}
 	if task.Job == nil {
 		return ErrNilJob
+	}
+	if task.Name == "" {
+		task.Name = job.NameOf(task.Job)
 	}
 	if task.SubmittedAt.IsZero() {
 		task.SubmittedAt = time.Now().UTC()

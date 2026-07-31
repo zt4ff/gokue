@@ -24,7 +24,7 @@ func (e Email) Process(context.Context) error {
 	return nil
 }
 
-// main creates a job queue, registers the email job, and submits an email task for processing.
+// main creates a job queue and submits an email task for processing.
 func main() {
 	q, err := gokue.NewQueue(
 		gokue.WithWorkerCount(1),
@@ -43,11 +43,7 @@ func main() {
 
 	user := Email{email: "johndoe@gmail.com", message: "This is testing the email"}
 
-	if err := q.RegisterJob("send email"); err != nil {
-		panic(err)
-	}
-
-	if err := q.Submit(context.Background(), "send email", user); err != nil {
+	if err := q.Submit(context.Background(), user); err != nil {
 		panic(err)
 	}
 }

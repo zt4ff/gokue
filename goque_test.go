@@ -47,6 +47,41 @@ func (j job) Process(ctx context.Context) error {
 	return nil
 }
 
+// namedJob implements Job and NamedJob with an explicit name.
+type namedJob struct {
+	processed *atomic.Bool
+}
+
+func (j *namedJob) Process(ctx context.Context) error {
+	j.processed.Store(true)
+	return nil
+}
+
+func (j *namedJob) Name() string {
+	return "custom-named-job"
+}
+
+func TestSubmitNamedJob(t *testing.T) {
+	queue, err := NewQueue()
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	defer queue.Close(context.Background())
+
+	job := &namedJob{processed: &atomic.Bool{}}
+
+	err = queue.Submit(context.Background(), job)
+	if err != nil {
+		t.Fatalf("submit failed: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	if !job.processed.Load() {
+		t.Error("expected named job to be processed")
+	}
+}
+
 func TestNewQueueInvalidConfigs(t *testing.T) {
 	testcases := map[string]struct {
 		config func(any) Option
@@ -105,23 +140,6 @@ func TestNewQueueInvalidConfigs(t *testing.T) {
 	}
 }
 
-func TestUnkownJob(t *testing.T) {
-	queue, err := NewQueue()
-	if err != nil {
-		t.Errorf("err shouldn't be nil")
-	}
-
-	err = queue.RegisterJob("email runner")
-	if err != nil {
-		t.Fatalf("RegisterJob failed: %v", err)
-	}
-
-	err = queue.Submit(context.Background(), "non-existent-job", job{t: t})
-	if err == nil {
-		t.Errorf("expected error but got nil")
-	}
-}
-
 func TestRunJob(t *testing.T) {
 	queue, err := NewQueue()
 	if err != nil {
@@ -160,7 +178,7 @@ func TestStats(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	err = queue.Submit(ctx, "test-job", successJob)
+	err = queue.Submit(ctx, successJob)
 	if err != nil {
 		t.Fatalf("submit failed: %v", err)
 	}
@@ -186,7 +204,7 @@ func TestSubmitWithNilContext(t *testing.T) {
 
 	successJob := &successJob{processed: &atomic.Bool{}}
 	//lint:ignore SA1012 Intentionally passing a nil context to verify validation.
-	err = queue.Submit(nil, "test-job", successJob)
+	err = queue.Submit(nil, successJob)
 	if err == nil {
 		t.Error("expected error when context is nil")
 	}
@@ -202,7 +220,7 @@ func TestSubmitWithNilJob(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err = queue.Submit(ctx, "test-job", nil)
+	err = queue.Submit(ctx, nil)
 	if err == nil {
 		t.Error("expected error when job is nil")
 	}
@@ -225,14 +243,14 @@ func TestTrySubmitQueueFull(t *testing.T) {
 	blockingTask := &blockingJobImpl{blockChan: blockingJob}
 
 	// Submit the blocking job to fill the queue
-	err = queue.Submit(ctx, "blocking", blockingTask)
+	err = queue.Submit(ctx, blockingTask)
 	if err != nil {
 		t.Fatalf("first submit failed: %v", err)
 	}
 
 	// Now try to submit another job without blocking - should fail
 	successJob := &successJob{processed: &atomic.Bool{}}
-	err = queue.TrySubmit(ctx, "test-job", successJob)
+	err = queue.TrySubmit(ctx, successJob)
 	if err == nil {
 		t.Error("expected ErrQueueFull")
 	}
@@ -258,7 +276,7 @@ func TestClosePreventsFutureSubmits(t *testing.T) {
 
 	// Try to submit after close - should fail
 	successJob := &successJob{processed: &atomic.Bool{}}
-	err = queue.Submit(context.Background(), "test-job", successJob)
+	err = queue.Submit(context.Background(), successJob)
 	if err == nil {
 		t.Error("expected error when submitting to closed queue")
 	}
@@ -278,7 +296,7 @@ func TestRetryCount(t *testing.T) {
 	failingJob := &failJob{attempts: &atomic.Int32{}}
 	ctx := context.Background()
 
-	err = queue.Submit(ctx, "test-job", failingJob)
+	err = queue.Submit(ctx, failingJob)
 	if err != nil {
 		t.Fatalf("submit failed: %v", err)
 	}
@@ -309,7 +327,7 @@ func TestPanicInJobDoesNotCrashProcess(t *testing.T) {
 	ctx := context.Background()
 
 	// This should not panic
-	err = queue.Submit(ctx, "panic-job", panicJob)
+	err = queue.Submit(ctx, panicJob)
 	if err != nil {
 		t.Fatalf("submit failed: %v", err)
 	}
@@ -333,4 +351,3 @@ func (j *blockingJobImpl) Process(ctx context.Context) error {
 	<-j.blockChan
 	return nil
 }
-
