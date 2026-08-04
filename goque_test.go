@@ -37,16 +37,6 @@ func (j *panicJob) Process(ctx context.Context) error {
 	panic("job panicked")
 }
 
-// job implements Job and tracks execution
-type job struct {
-	t *testing.T
-}
-
-func (j job) Process(ctx context.Context) error {
-	j.t.Helper()
-	return nil
-}
-
 // namedJob implements Job and NamedJob with an explicit name.
 type namedJob struct {
 	processed *atomic.Bool
