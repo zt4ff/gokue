@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zt4ff/gokue/logging"
+	"github.com/zt4ff/gokue/internal/logging"
 )
 
 // testLogger records log messages for verification.

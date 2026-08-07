@@ -5,7 +5,13 @@ import (
 	"fmt"
 	"log"
 	"time"
+
+	"go.uber.org/zap"
 )
+
+type ZapLogger struct {
+	sugar *zap.SugaredLogger
+}
 
 // Level represents the logging level.
 type Level int

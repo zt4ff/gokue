@@ -8,8 +8,8 @@ import (
 
 	"github.com/zt4ff/gokue/config"
 	"github.com/zt4ff/gokue/dispatcher"
+	"github.com/zt4ff/gokue/internal/logging"
 	jobpkg "github.com/zt4ff/gokue/job"
-	"github.com/zt4ff/gokue/logging"
 	"github.com/zt4ff/gokue/stats"
 )
 

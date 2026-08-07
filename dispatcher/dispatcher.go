@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/zt4ff/gokue/config"
+	"github.com/zt4ff/gokue/internal/logging"
 	"github.com/zt4ff/gokue/job"
-	"github.com/zt4ff/gokue/logging"
 	"github.com/zt4ff/gokue/stats"
 )
 
