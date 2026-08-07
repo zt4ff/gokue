@@ -364,15 +364,13 @@ func (d *Dispatcher) execute(task Task) {
 			return
 		}
 
-		if retryPredicates != nil {
-			if retryPredicates(err) {
-				continue
-			}
-			// retryPredicates failed
+		if retryPredicates != nil && !retryPredicates(err) {
+			// retry predicate blocked retries; mark final failure immediately
 			duration := time.Since(startTime)
 			d.collector.IncRetryPredicatesFailed()
+			d.collector.IncFailed()
 			logging.LogJobFailure(d.logger, task.Name, attempt+1, err, duration)
-			break
+			return
 		}
 
 		if attempt < maxRetries {
