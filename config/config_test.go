@@ -37,6 +37,9 @@ func TestDefault(t *testing.T) {
 	if cfg.BackoffStrategy != Exponential {
 		t.Errorf("expected backoff strategy %q, got %q", Exponential, cfg.BackoffStrategy)
 	}
+	if cfg.MaxJobStats != 10_000 {
+		t.Errorf("expected max job stats 10000, got %d", cfg.MaxJobStats)
+	}
 }
 
 func TestValidateValidConfigs(t *testing.T) {
@@ -73,6 +76,16 @@ func TestValidateValidConfigs(t *testing.T) {
 				MaxRetryDelay:   0,
 				ShutdownTimeout: 0,
 				BackoffStrategy: Exponential,
+			},
+		},
+		"with latency histogram buckets": {
+			config: Config{
+				Backend:                 InMemory,
+				WorkerCount:             1,
+				QueueSize:               1,
+				BackoffStrategy:         Exponential,
+				MaxJobStats:             100,
+				LatencyHistogramBuckets: []time.Duration{5 * time.Millisecond, 50 * time.Millisecond},
 			},
 		},
 	}
@@ -192,6 +205,33 @@ func TestValidateInvalidConfigs(t *testing.T) {
 				QueueSize:       1,
 				ShutdownTimeout: -1,
 				BackoffStrategy: Exponential,
+			},
+		},
+		"negative max job stats": {
+			config: Config{
+				Backend:         InMemory,
+				WorkerCount:     1,
+				QueueSize:       1,
+				BackoffStrategy: Exponential,
+				MaxJobStats:     -1,
+			},
+		},
+		"non-increasing latency histogram buckets": {
+			config: Config{
+				Backend:                 InMemory,
+				WorkerCount:             1,
+				QueueSize:               1,
+				BackoffStrategy:         Exponential,
+				LatencyHistogramBuckets: []time.Duration{50 * time.Millisecond, 10 * time.Millisecond},
+			},
+		},
+		"non-positive latency histogram bucket": {
+			config: Config{
+				Backend:                 InMemory,
+				WorkerCount:             1,
+				QueueSize:               1,
+				BackoffStrategy:         Exponential,
+				LatencyHistogramBuckets: []time.Duration{0, 10 * time.Millisecond},
 			},
 		},
 	}

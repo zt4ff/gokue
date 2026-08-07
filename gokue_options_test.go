@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/zt4ff/gokue/logging"
+	"github.com/zt4ff/gokue/stats"
 )
 
 // testLogger records log messages for verification.
@@ -325,5 +326,62 @@ func TestSubmitErrorsPropagate(t *testing.T) {
 	err = queue.Submit(ctx, &successJob{})
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("expected context.Canceled, got %v", err)
+	}
+}
+
+func TestQueueStatsByJobName(t *testing.T) {
+	queue, err := NewQueue(
+		WithWorkerCount(1),
+		WithMaxRetries(0),
+		WithLatencyHistogram(time.Millisecond, 10*time.Millisecond, 100*time.Millisecond),
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	defer queue.Close(context.Background())
+
+	if err := queue.Submit(context.Background(), &namedJob{processed: &atomic.Bool{}}); err != nil {
+		t.Fatalf("submit named job failed: %v", err)
+	}
+	failing := &failJob{attempts: &atomic.Int32{}}
+	if err := queue.Submit(context.Background(), failing, MaxRetries(0)); err != nil {
+		t.Fatalf("submit failing job failed: %v", err)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	jobs := queue.StatsByJobName()
+	byName := map[string]stats.JobStat{}
+	for _, j := range jobs {
+		byName[j.Name] = j
+	}
+
+	named, ok := byName["custom-named-job"]
+	if !ok {
+		t.Fatalf("expected per-job stats for custom-named-job, got %v", jobs)
+	}
+	if named.Enqueued != 1 || named.Processed != 1 {
+		t.Errorf("unexpected named job stats: %+v", named)
+	}
+	if named.SuccessHistogram == nil || named.SuccessHistogram.Count != 1 {
+		t.Errorf("expected success histogram with 1 observation, got %+v", named.SuccessHistogram)
+	}
+
+	// failJob's name is derived from its type name.
+	if failed, ok := byName["failJob"]; !ok || failed.Failed != 1 {
+		t.Errorf("expected failJob per-job stats with Failed 1, got %v", byName["failJob"])
+	}
+
+	// Aggregate remains available and consistent.
+	agg := queue.Stats()
+	if agg.Enqueued != 2 || agg.Processed != 1 || agg.Failed != 1 {
+		t.Errorf("unexpected aggregate stats: %+v", agg)
+	}
+}
+
+func TestNilQueueStatsByJobName(t *testing.T) {
+	var q *Queue
+	if jobs := q.StatsByJobName(); jobs != nil {
+		t.Errorf("expected nil per-job stats for nil queue, got %v", jobs)
 	}
 }

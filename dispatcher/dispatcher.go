@@ -105,7 +105,10 @@ func New(cfg config.Config, collector *stats.Collector) *Dispatcher {
 // If logger is nil, a NoOpLogger is used (logging disabled).
 func NewWithLogger(cfg config.Config, collector *stats.Collector, logger logging.Logger) *Dispatcher {
 	if collector == nil {
-		collector = stats.NewCollector()
+		collector = stats.NewCollector(
+			stats.WithMaxJobStats(cfg.MaxJobStats),
+			stats.WithLatencyBuckets(cfg.LatencyHistogramBuckets),
+		)
 	}
 	if logger == nil {
 		logger = &logging.NoOpLogger{}
@@ -154,11 +157,11 @@ func (d *Dispatcher) Submit(ctx context.Context, task Task) error {
 
 	select {
 	case d.tasks <- task:
-		d.collector.IncEnqueued()
+		d.collector.IncEnqueuedFor(task.Name)
 		logging.LogSubmitEnqueued(d.logger, task.Name)
 		return nil
 	case <-ctx.Done():
-		d.collector.IncDropped()
+		d.collector.IncDroppedFor(task.Name)
 		logging.LogSubmitRejected(d.logger, task.Name, logging.ReasonContextCancelled)
 		return ctx.Err()
 	}
@@ -191,11 +194,11 @@ func (d *Dispatcher) TrySubmit(ctx context.Context, task Task) error {
 
 	select {
 	case d.tasks <- task:
-		d.collector.IncEnqueued()
+		d.collector.IncEnqueuedFor(task.Name)
 		logging.LogSubmitEnqueued(d.logger, task.Name)
 		return nil
 	default:
-		d.collector.IncDropped()
+		d.collector.IncDroppedFor(task.Name)
 		logging.LogSubmitRejected(d.logger, task.Name, logging.ReasonQueueFull)
 		return ErrQueueFull
 	}
@@ -308,6 +311,12 @@ func (d *Dispatcher) Stats() stats.Snapshot {
 	return d.collector.Snapshot()
 }
 
+// StatsByJobName returns a per-job-name breakdown of the execution statistics,
+// sorted by name, including per-job latency summaries and histograms.
+func (d *Dispatcher) StatsByJobName() []stats.JobStat {
+	return d.collector.SnapshotByJobName()
+}
+
 // worker processes tasks from the dispatcher's queue until it is closed.
 // It continuously calls execute on each received task and recovers from any panics
 // in the dispatcher's own logic to avoid crashing the entire program.
@@ -359,7 +368,7 @@ func (d *Dispatcher) execute(task Task) {
 		err = runJob(task.Name, task.Job, d.cfg.JobTimeout)
 		if err == nil {
 			duration := time.Since(startTime)
-			d.collector.IncProcessed()
+			d.collector.IncProcessedFor(task.Name, duration)
 			logging.LogJobSuccess(d.logger, task.Name, duration)
 			return
 		}
@@ -367,14 +376,14 @@ func (d *Dispatcher) execute(task Task) {
 		if retryPredicates != nil && !retryPredicates(err) {
 			// retry predicate blocked retries; mark final failure immediately
 			duration := time.Since(startTime)
-			d.collector.IncRetryPredicatesFailed()
-			d.collector.IncFailed()
+			d.collector.IncRetryPredicatesFailedFor(task.Name)
+			d.collector.IncFailedFor(task.Name, duration)
 			logging.LogJobFailure(d.logger, task.Name, attempt+1, err, duration)
 			return
 		}
 
 		if attempt < maxRetries {
-			d.collector.IncRetried()
+			d.collector.IncRetriedFor(task.Name)
 			delay := retryDelay(retryBaseDelay, d.cfg.MaxRetryDelay, attempt, d.cfg.BackoffStrategy)
 			logging.LogJobRetry(d.logger, task.Name, attempt+1, err, delay)
 
@@ -384,8 +393,8 @@ func (d *Dispatcher) execute(task Task) {
 					// delay elapsed, continue to next attempt
 				case <-d.quit:
 					// dispatcher is shutting down; abandon remaining retries
-					d.collector.IncFailed()
 					duration := time.Since(startTime)
+					d.collector.IncFailedFor(task.Name, duration)
 					logging.LogJobAbandoned(d.logger, task.Name, attempt+1, logging.ReasonDispatcherShutdown, duration)
 					return
 				}
@@ -395,7 +404,7 @@ func (d *Dispatcher) execute(task Task) {
 
 	// All retries exhausted
 	duration := time.Since(startTime)
-	d.collector.IncFailed()
+	d.collector.IncFailedFor(task.Name, duration)
 	logging.LogJobFailure(d.logger, task.Name, maxRetries+1, err, duration)
 }
 

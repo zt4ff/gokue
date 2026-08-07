@@ -98,6 +98,17 @@ type Config struct {
 	//
 	// If it returns `true`, the dispatcher will attempt to retry the job
 	RetryPredicates func(error) bool
+	// MaxJobStats is the maximum number of distinct job names tracked for
+	// per-job statistics. Zero or negative means no limit. When the limit is
+	// reached, additional job names are aggregated under the "untracked" bucket.
+	// This only applies to the stats collector created internally.
+	MaxJobStats int
+	// LatencyHistogramBuckets sets the inclusive upper bounds (positive and
+	// strictly increasing) of the per-job latency histogram buckets. Success
+	// and failure latencies are histogrammed separately. Empty means no
+	// latency histograms are collected. Only applies to the stats collector
+	// created internally.
+	LatencyHistogramBuckets []time.Duration
 }
 
 // ErrInvalidConfig is an error where config for a queue is invalid.
@@ -116,6 +127,7 @@ func Default() Config {
 		ShutdownTimeout: 10 * time.Second,
 		BackoffStrategy: Exponential,
 		RetryPredicates: nil,
+		MaxJobStats:     10_000,
 	}
 }
 
@@ -159,6 +171,19 @@ func (c *Config) Validate() error {
 
 	if c.MaxRetryDelay < 0 {
 		return fmt.Errorf("%w: max retry delay cannot be negative", ErrInvalidConfig)
+	}
+
+	if c.MaxJobStats < 0 {
+		return fmt.Errorf("%w: max job stats cannot be negative", ErrInvalidConfig)
+	}
+
+	for i, b := range c.LatencyHistogramBuckets {
+		if b <= 0 {
+			return fmt.Errorf("%w: latency histogram buckets must be positive", ErrInvalidConfig)
+		}
+		if i > 0 && b <= c.LatencyHistogramBuckets[i-1] {
+			return fmt.Errorf("%w: latency histogram buckets must be strictly increasing", ErrInvalidConfig)
+		}
 	}
 
 	return nil

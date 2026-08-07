@@ -117,6 +117,18 @@ func TestNewQueueInvalidConfigs(t *testing.T) {
 			config: func(a any) Option { return WithShutdownTimeout(a.(time.Duration)) },
 			arg:    time.Second * -1,
 		},
+		"with max job stats": {
+			config: func(a any) Option { return WithMaxJobStats(a.(int)) },
+			arg:    -1,
+		},
+		"with non-increasing latency histogram buckets": {
+			config: func(a any) Option { return WithLatencyHistogram(a.([]time.Duration)...) },
+			arg:    []time.Duration{50 * time.Millisecond, 10 * time.Millisecond},
+		},
+		"with non-positive latency histogram bucket": {
+			config: func(a any) Option { return WithLatencyHistogram(a.([]time.Duration)...) },
+			arg:    []time.Duration{0, 10 * time.Millisecond},
+		},
 	}
 
 	for name, testcase := range testcases {
@@ -232,10 +244,15 @@ func TestTrySubmitQueueFull(t *testing.T) {
 	blockingJob := make(chan struct{})
 	blockingTask := &blockingJobImpl{blockChan: blockingJob}
 
-	// Submit the blocking job to fill the queue
+	// Submit the blocking job, then a filler job. Regardless of whether the
+	// worker has dequeued the blocking task yet, the queue ends up full.
 	err = queue.Submit(ctx, blockingTask)
 	if err != nil {
 		t.Fatalf("first submit failed: %v", err)
+	}
+	filler := &successJob{processed: &atomic.Bool{}}
+	if err = queue.Submit(ctx, filler); err != nil {
+		t.Fatalf("filler submit failed: %v", err)
 	}
 
 	// Now try to submit another job without blocking - should fail

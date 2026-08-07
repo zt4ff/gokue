@@ -11,6 +11,7 @@ import (
 	"github.com/zt4ff/gokue/config"
 	"github.com/zt4ff/gokue/dispatcher"
 	"github.com/zt4ff/gokue/logging"
+	"github.com/zt4ff/gokue/stats"
 )
 
 func setup(t *testing.T) *dispatcher.Dispatcher {
@@ -132,6 +133,16 @@ func TestTrySubmitQueueFull(t *testing.T) {
 	err := d.Submit(ctx, slowTask)
 	if err != nil {
 		t.Fatalf("first submit failed: %v", err)
+	}
+
+	// Submit a filler job. Whether the worker has already dequeued the slow
+	// task or not, the queue ends up full once the filler is enqueued.
+	filler := dispatcher.Task{
+		Name: "filler-job",
+		Job:  &successJob{},
+	}
+	if err = d.Submit(ctx, filler); err != nil {
+		t.Fatalf("filler submit failed: %v", err)
 	}
 
 	// Try to submit another job - queue should be full
@@ -1446,5 +1457,73 @@ func TestWorkerRecoversFromInternalPanic(t *testing.T) {
 	// recovered), then worker_panic. A count below 4 means the recover path never ran.
 	if got := logger.count(); got < 4 {
 		t.Errorf("expected at least 4 log calls after worker panic, got %d", got)
+	}
+}
+
+// TestStatsByJobName verifies the per-job-name breakdown, latency summaries,
+// and histogram collection end to end through the dispatcher.
+func TestStatsByJobName(t *testing.T) {
+	cfg := config.Config{
+		Backend:                 config.InMemory,
+		BackoffStrategy:         config.Exponential,
+		QueueSize:               10,
+		WorkerCount:             2,
+		MaxRetries:              0,
+		JobTimeout:              5 * time.Second,
+		RetryDelay:              0,
+		ShutdownTimeout:         5 * time.Second,
+		LatencyHistogramBuckets: []time.Duration{time.Millisecond, 10 * time.Millisecond, 100 * time.Millisecond},
+	}
+
+	d := dispatcher.NewWithLogger(cfg, nil, &recordingLogger{})
+	defer d.Close(context.Background())
+
+	if err := d.Submit(context.Background(), dispatcher.Task{Name: "ok", Job: &successJob{}}); err != nil {
+		t.Fatalf("submit ok failed: %v", err)
+	}
+	if err := d.Submit(context.Background(), dispatcher.Task{Name: "ok", Job: &successJob{}}); err != nil {
+		t.Fatalf("submit ok failed: %v", err)
+	}
+	if err := d.Submit(context.Background(), dispatcher.Task{Name: "bad", Job: &failJob{attempts: &atomic.Int32{}}}); err != nil {
+		t.Fatalf("submit bad failed: %v", err)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	jobs := d.StatsByJobName()
+	byName := map[string]stats.JobStat{}
+	for _, j := range jobs {
+		byName[j.Name] = j
+	}
+
+	ok, okFound := byName["ok"]
+	if !okFound {
+		t.Fatalf("expected stats for job name ok, got %v", jobs)
+	}
+	if ok.Enqueued != 2 || ok.Processed != 2 || ok.Failed != 0 {
+		t.Errorf("unexpected ok stats: %+v", ok)
+	}
+	if ok.SuccessLatency.Count != 2 {
+		t.Errorf("expected 2 success latencies, got %+v", ok.SuccessLatency)
+	}
+	if ok.SuccessHistogram == nil || ok.SuccessHistogram.Count != 2 {
+		t.Errorf("expected success histogram with 2 observations, got %+v", ok.SuccessHistogram)
+	}
+
+	bad, badFound := byName["bad"]
+	if !badFound {
+		t.Fatalf("expected stats for job name bad, got %v", jobs)
+	}
+	if bad.Processed != 0 || bad.Failed != 1 {
+		t.Errorf("unexpected bad stats: %+v", bad)
+	}
+	if bad.FailureLatency.Count != 1 {
+		t.Errorf("expected 1 failure latency, got %+v", bad.FailureLatency)
+	}
+
+	// Aggregate view must reflect the same totals.
+	agg := d.Stats()
+	if agg.Enqueued != 3 || agg.Processed != 2 || agg.Failed != 1 {
+		t.Errorf("unexpected aggregate stats: %+v", agg)
 	}
 }

@@ -105,6 +105,25 @@ func WithShutdownTimeout(timeout time.Duration) Option {
 	}
 }
 
+// WithMaxJobStats returns an Option that caps the number of distinct job names
+// tracked for per-job statistics. A value of zero or negative means no limit.
+// When the limit is reached, additional job names are aggregated under the
+// "untracked" bucket.
+func WithMaxJobStats(max int) Option {
+	return func(target *config.Config) {
+		target.MaxJobStats = max
+	}
+}
+
+// WithLatencyHistogram returns an Option that enables per-job latency
+// histograms with the given bucket upper bounds (positive and strictly
+// increasing). Success and failure latencies are recorded separately.
+func WithLatencyHistogram(bounds ...time.Duration) Option {
+	return func(target *config.Config) {
+		target.LatencyHistogramBuckets = append([]time.Duration(nil), bounds...)
+	}
+}
+
 // QueueLoggerOption sets the logger for a Queue.
 // This is separate from the regular Option type since it's not part of Config.
 type QueueLoggerOption func(*logging.Logger)
@@ -142,7 +161,10 @@ func NewQueueWithLogger(logger logging.Logger, options ...Option) (*Queue, error
 		logger = &logging.NoOpLogger{}
 	}
 
-	collector := stats.NewCollector()
+	collector := stats.NewCollector(
+		stats.WithMaxJobStats(queueConfig.MaxJobStats),
+		stats.WithLatencyBuckets(queueConfig.LatencyHistogramBuckets),
+	)
 	queue := &Queue{
 		config:    queueConfig,
 		collector: collector,
@@ -226,4 +248,15 @@ func (q *Queue) Stats() stats.Snapshot {
 		return stats.Snapshot{}
 	}
 	return q.collector.Snapshot()
+}
+
+// StatsByJobName returns a per-job-name breakdown of the execution statistics,
+// sorted by name. Latency summaries and histograms are per job name. The sum of
+// the returned entries equals the aggregate Stats() values once all in-flight
+// operations settle. It returns nil if the queue is nil or has no collector.
+func (q *Queue) StatsByJobName() []stats.JobStat {
+	if q == nil || q.collector == nil {
+		return nil
+	}
+	return q.collector.SnapshotByJobName()
 }
