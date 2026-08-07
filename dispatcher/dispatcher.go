@@ -148,18 +148,18 @@ func (d *Dispatcher) Submit(ctx context.Context, task Task) error {
 	defer d.submitMu.RUnlock()
 
 	if d.closed {
-		d.logger.Warn("job_submission_rejected", "job_name", task.Name, "reason", "dispatcher_closed")
+		logging.LogSubmitRejected(d.logger, task.Name, logging.ReasonDispatcherClosed)
 		return ErrClosed
 	}
 
 	select {
 	case d.tasks <- task:
 		d.collector.IncEnqueued()
-		d.logger.Debug("job_submitted", "job_name", task.Name, "status", "enqueued")
+		logging.LogSubmitEnqueued(d.logger, task.Name)
 		return nil
 	case <-ctx.Done():
 		d.collector.IncDropped()
-		d.logger.Warn("job_submission_rejected", "job_name", task.Name, "reason", "context_cancelled")
+		logging.LogSubmitRejected(d.logger, task.Name, logging.ReasonContextCancelled)
 		return ctx.Err()
 	}
 }
@@ -185,18 +185,18 @@ func (d *Dispatcher) TrySubmit(ctx context.Context, task Task) error {
 	defer d.submitMu.RUnlock()
 
 	if d.closed {
-		d.logger.Warn("job_submission_rejected", "job_name", task.Name, "reason", "dispatcher_closed")
+		logging.LogSubmitRejected(d.logger, task.Name, logging.ReasonDispatcherClosed)
 		return ErrClosed
 	}
 
 	select {
 	case d.tasks <- task:
 		d.collector.IncEnqueued()
-		d.logger.Debug("job_submitted", "job_name", task.Name, "status", "enqueued")
+		logging.LogSubmitEnqueued(d.logger, task.Name)
 		return nil
 	default:
 		d.collector.IncDropped()
-		d.logger.Warn("job_submission_rejected", "job_name", task.Name, "reason", "queue_full")
+		logging.LogSubmitRejected(d.logger, task.Name, logging.ReasonQueueFull)
 		return ErrQueueFull
 	}
 }
@@ -267,7 +267,7 @@ func (d *Dispatcher) CloseWithMode(ctx context.Context, mode string) error {
 	}
 
 	startTime := time.Now()
-	d.logger.Info("dispatcher_close_started", "mode", mode)
+	logging.LogCloseStart(d.logger, mode)
 
 	d.submitMu.Lock()
 	if !d.closed {
@@ -280,7 +280,7 @@ func (d *Dispatcher) CloseWithMode(ctx context.Context, mode string) error {
 	// For immediate mode, return without waiting
 	if mode == ImmediateMode {
 		duration := time.Since(startTime)
-		d.logger.Info("dispatcher_close_completed", "mode", mode, "duration_ms", duration.Milliseconds(), "status", "success")
+		logging.LogCloseComplete(d.logger, mode, duration, nil)
 		return nil
 	}
 
@@ -294,11 +294,11 @@ func (d *Dispatcher) CloseWithMode(ctx context.Context, mode string) error {
 	select {
 	case <-done:
 		duration := time.Since(startTime)
-		d.logger.Info("dispatcher_close_completed", "mode", mode, "duration_ms", duration.Milliseconds(), "status", "success")
+		logging.LogCloseComplete(d.logger, mode, duration, nil)
 		return nil
 	case <-ctx.Done():
 		duration := time.Since(startTime)
-		d.logger.Error("dispatcher_close_completed", "mode", mode, "duration_ms", duration.Milliseconds(), "error", ctx.Err().Error())
+		logging.LogCloseComplete(d.logger, mode, duration, ctx.Err())
 		return ctx.Err()
 	}
 }
@@ -317,7 +317,7 @@ func (d *Dispatcher) worker() {
 		if recovered := recover(); recovered != nil {
 			// A panic in the dispatcher itself (not the job) is a programming error.
 			// Log it and let this worker die gracefully rather than crashing the program.
-			d.logger.Error("worker_panic", "panic", fmt.Sprintf("%v", recovered))
+			logging.LogWorkerPanic(d.logger, recovered)
 		}
 	}()
 
@@ -354,16 +354,13 @@ func (d *Dispatcher) execute(task Task) {
 	}
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
-		d.logger.Debug("job_processing", "job_name", task.Name, "attempt", attempt+1)
+		logging.LogJobProcessing(d.logger, task.Name, attempt+1)
 
 		err = runJob(task.Name, task.Job, d.cfg.JobTimeout)
 		if err == nil {
 			duration := time.Since(startTime)
 			d.collector.IncProcessed()
-			d.logger.Info("job_completed",
-				"job_name", task.Name,
-				"status", "success",
-				"duration_ms", duration.Milliseconds())
+			logging.LogJobSuccess(d.logger, task.Name, duration)
 			return
 		}
 
@@ -374,22 +371,14 @@ func (d *Dispatcher) execute(task Task) {
 			// retryPredicates failed
 			duration := time.Since(startTime)
 			d.collector.IncRetryPredicatesFailed()
-			d.logger.Error("job_failed",
-				"job_name", task.Name,
-				"error", err.Error(),
-				"duration_ms", duration.Milliseconds(),
-				"status", "final_failure")
+			logging.LogJobFailure(d.logger, task.Name, attempt+1, err, duration)
 			break
 		}
 
 		if attempt < maxRetries {
 			d.collector.IncRetried()
 			delay := retryDelay(retryBaseDelay, d.cfg.MaxRetryDelay, attempt, d.cfg.BackoffStrategy)
-			d.logger.Info("job_retry",
-				"job_name", task.Name,
-				"attempt", attempt+1,
-				"error", err.Error(),
-				"retry_delay_ms", delay.Milliseconds())
+			logging.LogJobRetry(d.logger, task.Name, attempt+1, err, delay)
 
 			if delay > 0 {
 				select {
@@ -399,11 +388,7 @@ func (d *Dispatcher) execute(task Task) {
 					// dispatcher is shutting down; abandon remaining retries
 					d.collector.IncFailed()
 					duration := time.Since(startTime)
-					d.logger.Warn("job_abandoned",
-						"job_name", task.Name,
-						"attempt", attempt+1,
-						"reason", "dispatcher_shutdown",
-						"duration_ms", duration.Milliseconds())
+					logging.LogJobAbandoned(d.logger, task.Name, attempt+1, logging.ReasonDispatcherShutdown, duration)
 					return
 				}
 			}
@@ -413,12 +398,7 @@ func (d *Dispatcher) execute(task Task) {
 	// All retries exhausted
 	duration := time.Since(startTime)
 	d.collector.IncFailed()
-	d.logger.Error("job_failed",
-		"job_name", task.Name,
-		"attempt", maxRetries+1,
-		"error", err.Error(),
-		"duration_ms", duration.Milliseconds(),
-		"status", "final_failure")
+	logging.LogJobFailure(d.logger, task.Name, maxRetries+1, err, duration)
 }
 
 // runJob executes a job with the specified timeout and recovers from any panics.

@@ -734,11 +734,11 @@ func (rl *recordingLogger) Error(message string, fields ...interface{}) {
 	rl.Log(logging.LevelError, message, fields...)
 }
 
-func (rl *recordingLogger) findLog(msg string) *logRecord {
+func (rl *recordingLogger) findLog(event logging.Event) *logRecord {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 	for _, log := range rl.logs {
-		if log.msg == msg {
+		if log.msg == string(event) {
 			return log
 		}
 	}
@@ -776,7 +776,7 @@ func TestLoggingOnJobSubmit(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Verify submission was logged
-	if submitted := logger.findLog("job_submitted"); submitted == nil {
+	if submitted := logger.findLog(logging.EventSubmitEnqueued); submitted == nil {
 		t.Error("expected job_submitted log")
 	}
 }
@@ -808,7 +808,7 @@ func TestLoggingOnJobRejection(t *testing.T) {
 	_ = d.Submit(context.Background(), task)
 
 	// Verify rejection was logged
-	if rejected := logger.findLog("job_submission_rejected"); rejected == nil {
+	if rejected := logger.findLog(logging.EventSubmitRejected); rejected == nil {
 		t.Error("expected job_submission_rejected log")
 	}
 }
@@ -847,12 +847,12 @@ func TestLoggingOnRetry(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	// Verify retry was logged
-	if retry := logger.findLog("job_retry"); retry == nil {
+	if retry := logger.findLog(logging.EventJobRetry); retry == nil {
 		t.Error("expected job_retry log")
 	}
 
 	// Verify failure was logged
-	if failed := logger.findLog("job_failed"); failed == nil {
+	if failed := logger.findLog(logging.EventJobFailed); failed == nil {
 		t.Error("expected job_failed log")
 	}
 }
@@ -887,7 +887,7 @@ func TestLoggingOnSuccess(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify success was logged
-	if success := logger.findLog("job_completed"); success == nil {
+	if success := logger.findLog(logging.EventJobCompleted); success == nil {
 		t.Error("expected job_completed log with success status")
 	}
 }
@@ -914,12 +914,12 @@ func TestLoggingOnCloseStart(t *testing.T) {
 	d.Close(ctx)
 
 	// Verify close start was logged
-	if closeStart := logger.findLog("dispatcher_close_started"); closeStart == nil {
+	if closeStart := logger.findLog(logging.EventCloseStarted); closeStart == nil {
 		t.Error("expected dispatcher_close_started log")
 	}
 
 	// Verify close complete was logged
-	if closeComplete := logger.findLog("dispatcher_close_completed"); closeComplete == nil {
+	if closeComplete := logger.findLog(logging.EventCloseCompleted); closeComplete == nil {
 		t.Error("expected dispatcher_close_completed log")
 	}
 }
@@ -950,7 +950,7 @@ func TestLoggingContainsRequiredFields(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Find the job_submitted log
-	submitted := logger.findLog("job_submitted")
+	submitted := logger.findLog(logging.EventSubmitEnqueued)
 	if submitted == nil {
 		t.Fatal("expected job_submitted log")
 	}
@@ -958,7 +958,7 @@ func TestLoggingContainsRequiredFields(t *testing.T) {
 	// Verify job_name field is present
 	hasJobName := false
 	for i := 0; i < len(submitted.fields); i += 2 {
-		if i+1 < len(submitted.fields) && submitted.fields[i] == "job_name" {
+		if i+1 < len(submitted.fields) && submitted.fields[i] == string(logging.FieldJobName) {
 			hasJobName = true
 			break
 		}

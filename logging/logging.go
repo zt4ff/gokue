@@ -144,36 +144,40 @@ func (le *LogEvent) Flatten() (message string, fields []interface{}) {
 	fields = make([]interface{}, 0)
 
 	if le.JobName != "" {
-		fields = append(fields, "job_name", le.JobName)
+		fields = append(fields, string(FieldJobName), le.JobName)
 	}
 	if le.Attempt > 0 {
-		fields = append(fields, "attempt", le.Attempt)
+		fields = append(fields, string(FieldAttempt), le.Attempt)
 	}
 	if le.Error != nil {
-		fields = append(fields, "error", le.Error.Error())
+		fields = append(fields, string(FieldError), le.Error.Error())
 	}
 	if le.Duration > 0 {
-		fields = append(fields, "duration_ms", le.Duration.Milliseconds())
+		fields = append(fields, string(FieldDurationMs), le.Duration.Milliseconds())
 	}
 	fields = append(fields, le.ExtraKeys...)
 
 	return
 }
 
-// LogSubmitAccepted logs a successful job submission.
-func LogSubmitAccepted(logger Logger, jobName string) {
+// LogSubmitEnqueued logs a successful job submission.
+func LogSubmitEnqueued(logger Logger, jobName string) {
 	if logger == nil {
 		return
 	}
-	logger.Info("job_submitted", "job_name", jobName, "status", "accepted")
+	logger.Debug(string(EventSubmitEnqueued),
+		string(FieldJobName), jobName,
+		string(FieldStatus), string(StatusEnqueued))
 }
 
 // LogSubmitRejected logs a rejected job submission.
-func LogSubmitRejected(logger Logger, jobName string, reason string) {
+func LogSubmitRejected(logger Logger, jobName string, reason Reason) {
 	if logger == nil {
 		return
 	}
-	logger.Warn("job_submission_rejected", "job_name", jobName, "reason", reason)
+	logger.Warn(string(EventSubmitRejected),
+		string(FieldJobName), jobName,
+		string(FieldReason), string(reason))
 }
 
 // LogJobProcessing logs the start of job execution.
@@ -181,7 +185,9 @@ func LogJobProcessing(logger Logger, jobName string, attempt int) {
 	if logger == nil {
 		return
 	}
-	logger.Debug("job_processing_started", "job_name", jobName, "attempt", attempt)
+	logger.Debug(string(EventJobProcessing),
+		string(FieldJobName), jobName,
+		string(FieldAttempt), attempt)
 }
 
 // LogJobRetry logs a job retry attempt.
@@ -193,11 +199,11 @@ func LogJobRetry(logger Logger, jobName string, attempt int, err error, delay ti
 	if err != nil {
 		errStr = err.Error()
 	}
-	logger.Info("job_retry",
-		"job_name", jobName,
-		"attempt", attempt,
-		"error", errStr,
-		"retry_delay_ms", delay.Milliseconds())
+	logger.Info(string(EventJobRetry),
+		string(FieldJobName), jobName,
+		string(FieldAttempt), attempt,
+		string(FieldError), errStr,
+		string(FieldRetryDelayMs), delay.Milliseconds())
 }
 
 // LogJobSuccess logs successful job completion.
@@ -205,10 +211,10 @@ func LogJobSuccess(logger Logger, jobName string, duration time.Duration) {
 	if logger == nil {
 		return
 	}
-	logger.Info("job_completed",
-		"job_name", jobName,
-		"status", "success",
-		"duration_ms", duration.Milliseconds())
+	logger.Info(string(EventJobCompleted),
+		string(FieldJobName), jobName,
+		string(FieldStatus), string(StatusSuccess),
+		string(FieldDurationMs), duration.Milliseconds())
 }
 
 // LogJobFailure logs final job failure after all retries.
@@ -220,12 +226,24 @@ func LogJobFailure(logger Logger, jobName string, attempt int, err error, durati
 	if err != nil {
 		errStr = err.Error()
 	}
-	logger.Error("job_failed",
-		"job_name", jobName,
-		"attempt", attempt,
-		"error", errStr,
-		"duration_ms", duration.Milliseconds(),
-		"status", "final_failure")
+	logger.Error(string(EventJobFailed),
+		string(FieldJobName), jobName,
+		string(FieldAttempt), attempt,
+		string(FieldError), errStr,
+		string(FieldDurationMs), duration.Milliseconds(),
+		string(FieldStatus), string(StatusFinalFailure))
+}
+
+// LogJobAbandoned logs a job abandoned during dispatcher shutdown.
+func LogJobAbandoned(logger Logger, jobName string, attempt int, reason Reason, duration time.Duration) {
+	if logger == nil {
+		return
+	}
+	logger.Warn(string(EventJobAbandoned),
+		string(FieldJobName), jobName,
+		string(FieldAttempt), attempt,
+		string(FieldReason), string(reason),
+		string(FieldDurationMs), duration.Milliseconds())
 }
 
 // LogCloseStart logs the start of dispatcher shutdown.
@@ -233,7 +251,7 @@ func LogCloseStart(logger Logger, mode string) {
 	if logger == nil {
 		return
 	}
-	logger.Info("dispatcher_close_started", "mode", mode)
+	logger.Info(string(EventCloseStarted), string(FieldMode), mode)
 }
 
 // LogCloseComplete logs the completion of dispatcher shutdown.
@@ -241,13 +259,13 @@ func LogCloseComplete(logger Logger, mode string, duration time.Duration, err er
 	if logger == nil {
 		return
 	}
-	fields := []interface{}{"mode", mode, "duration_ms", duration.Milliseconds()}
+	fields := []interface{}{string(FieldMode), mode, string(FieldDurationMs), duration.Milliseconds()}
 	if err != nil {
-		fields = append(fields, "error", err.Error())
-		logger.Error("dispatcher_close_completed", fields...)
+		fields = append(fields, string(FieldError), err.Error())
+		logger.Error(string(EventCloseCompleted), fields...)
 	} else {
-		fields = append(fields, "status", "success")
-		logger.Info("dispatcher_close_completed", fields...)
+		fields = append(fields, string(FieldStatus), string(StatusSuccess))
+		logger.Info(string(EventCloseCompleted), fields...)
 	}
 }
 
@@ -256,7 +274,9 @@ func LogJobPanic(logger Logger, jobName string, recovered interface{}) {
 	if logger == nil {
 		return
 	}
-	logger.Error("job_panic", "job_name", jobName, "panic", fmt.Sprintf("%v", recovered))
+	logger.Error(string(EventJobPanic),
+		string(FieldJobName), jobName,
+		string(FieldPanic), fmt.Sprintf("%v", recovered))
 }
 
 // LogWorkerPanic logs a panic in the dispatcher worker itself.
@@ -264,5 +284,5 @@ func LogWorkerPanic(logger Logger, recovered interface{}) {
 	if logger == nil {
 		return
 	}
-	logger.Error("worker_panic", "panic", fmt.Sprintf("%v", recovered))
+	logger.Error(string(EventWorkerPanic), string(FieldPanic), fmt.Sprintf("%v", recovered))
 }
