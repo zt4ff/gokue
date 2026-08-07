@@ -1,7 +1,9 @@
 package logging
 
 import (
+	"errors"
 	"testing"
+	"time"
 )
 
 // TestNoOpLogger verifies NoOpLogger implements the Logger interface.
@@ -120,4 +122,82 @@ func TestDefaultLoggerWithOddFields(t *testing.T) {
 
 	// Should not panic with odd number of fields
 	logger.Info("test message", "key1", "value1", "key2") // missing value for key2
+}
+
+// TestLevelToString verifies levelToString covers every level and the fallback.
+func TestLevelToString(t *testing.T) {
+	cases := []struct {
+		level Level
+		want  string
+	}{
+		{LevelDebug, "DEBUG"},
+		{LevelInfo, "INFO"},
+		{LevelWarn, "WARN"},
+		{LevelError, "ERROR"},
+		{Level(999), "UNKNOWN"},
+	}
+	for _, tc := range cases {
+		if got := levelToString(tc.level); got != tc.want {
+			t.Errorf("levelToString(%d): expected %q, got %q", tc.level, tc.want, got)
+		}
+	}
+}
+
+// TestLogEventFlattenAllBranches verifies Flatten includes error, duration, and
+// extra keys when present.
+func TestLogEventFlattenAllBranches(t *testing.T) {
+	event := &LogEvent{
+		Message:   "full",
+		Level:     LevelInfo,
+		JobName:   "my-job",
+		Attempt:   3,
+		Error:     errors.New("boom"),
+		Duration:  250 * time.Millisecond,
+		ExtraKeys: []interface{}{"extra", "value"},
+	}
+
+	msg, fields := event.Flatten()
+	if msg != "full" {
+		t.Errorf("expected message 'full', got %q", msg)
+	}
+
+	flat := map[string]interface{}{}
+	for i := 0; i < len(fields); i += 2 {
+		flat[fields[i].(string)] = fields[i+1]
+	}
+	if flat[string(FieldError)] != "boom" {
+		t.Errorf("expected error field, got %v", flat[string(FieldError)])
+	}
+	if flat[string(FieldDurationMs)] != int64(250) {
+		t.Errorf("expected duration 250ms, got %v", flat[string(FieldDurationMs)])
+	}
+	if flat["extra"] != "value" {
+		t.Errorf("expected extra key, got %v", flat["extra"])
+	}
+}
+
+// TestLogEventFlattenEmpty verifies Flatten handles an empty event without panicking.
+func TestLogEventFlattenEmpty(t *testing.T) {
+	event := &LogEvent{Message: "empty"}
+	msg, fields := event.Flatten()
+	if msg != "empty" {
+		t.Errorf("expected message 'empty', got %q", msg)
+	}
+	if len(fields) != 0 {
+		t.Errorf("expected no fields, got %v", fields)
+	}
+}
+
+// TestLogHelpersWithErrors verifies helpers that render error strings work when
+// err is non-nil.
+func TestLogHelpersWithErrors(t *testing.T) {
+	logger := &NoOpLogger{}
+	jobErr := errors.New("boom")
+
+	LogJobRetry(logger, "job-name", 1, jobErr, 5*time.Millisecond)
+	LogJobFailure(logger, "job-name", 1, jobErr, 5*time.Millisecond)
+	LogCloseComplete(logger, "drain", time.Millisecond, jobErr)
+	LogJobProcessing(logger, "job-name", 1)
+	LogSubmitEnqueued(logger, "job-name")
+	LogSubmitRejected(logger, "job-name", ReasonContextCancelled)
 }
