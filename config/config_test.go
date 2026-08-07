@@ -37,6 +37,12 @@ func TestDefault(t *testing.T) {
 	if cfg.BackoffStrategy != Exponential {
 		t.Errorf("expected backoff strategy %q, got %q", Exponential, cfg.BackoffStrategy)
 	}
+	if cfg.Logger != nil {
+		t.Errorf("expected logger to be nil, got %q", cfg.Logger)
+	}
+	if cfg.RetryPredicates != nil {
+		t.Errorf("expected retry predicates to be nil")
+	}
 }
 
 func TestValidateValidConfigs(t *testing.T) {

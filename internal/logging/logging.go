@@ -3,15 +3,12 @@ package logging
 
 import (
 	"fmt"
-	"log"
+	"io"
 	"time"
 
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
-
-type ZapLogger struct {
-	sugar *zap.SugaredLogger
-}
 
 // Level represents the logging level.
 type Level int
@@ -44,126 +41,60 @@ type Logger interface {
 	Error(message string, fields ...interface{})
 }
 
-// NoOpLogger is a logger that does nothing. Use this to disable logging.
-type NoOpLogger struct{}
-
-// Log implements Logger.
-func (n *NoOpLogger) Log(level Level, message string, fields ...interface{}) {}
-
-// Debug implements Logger.
-func (n *NoOpLogger) Debug(message string, fields ...interface{}) {}
-
-// Info implements Logger.
-func (n *NoOpLogger) Info(message string, fields ...interface{}) {}
-
-// Warn implements Logger.
-func (n *NoOpLogger) Warn(message string, fields ...interface{}) {}
-
-// Error implements Logger.
-func (n *NoOpLogger) Error(message string, fields ...interface{}) {}
-
-// DefaultLogger is a simple structured logger that writes to the standard log package.
-// It's suitable for development and basic production use.
-type DefaultLogger struct {
-	level Level
-}
-
-// NewDefaultLogger creates a new DefaultLogger with the specified level.
-func NewDefaultLogger(level Level) *DefaultLogger {
-	return &DefaultLogger{level: level}
+// zapLogger implements Logger using a zap sugared logger.
+type zapLogger struct {
+	sugar *zap.SugaredLogger
 }
 
 // Log implements Logger.
-func (dl *DefaultLogger) Log(level Level, message string, fields ...interface{}) {
-	if level < dl.level {
-		return
-	}
-
-	levelStr := levelToString(level)
-	msg := fmt.Sprintf("[%s] %s", levelStr, message)
-
-	// Append fields as key=value pairs
-	if len(fields) > 0 {
-		msg += " |"
-		for i := 0; i < len(fields); i += 2 {
-			if i+1 < len(fields) {
-				msg += fmt.Sprintf(" %v=%v", fields[i], fields[i+1])
-			} else {
-				// Odd number of fields
-				msg += fmt.Sprintf(" %v=<missing>", fields[i])
-			}
-		}
-	}
-
-	log.Println(msg)
-}
-
-// Debug implements Logger.
-func (dl *DefaultLogger) Debug(message string, fields ...interface{}) {
-	dl.Log(LevelDebug, message, fields...)
-}
-
-// Info implements Logger.
-func (dl *DefaultLogger) Info(message string, fields ...interface{}) {
-	dl.Log(LevelInfo, message, fields...)
-}
-
-// Warn implements Logger.
-func (dl *DefaultLogger) Warn(message string, fields ...interface{}) {
-	dl.Log(LevelWarn, message, fields...)
-}
-
-// Error implements Logger.
-func (dl *DefaultLogger) Error(message string, fields ...interface{}) {
-	dl.Log(LevelError, message, fields...)
-}
-
-func levelToString(level Level) string {
+func (l *zapLogger) Log(level Level, message string, fields ...interface{}) {
 	switch level {
 	case LevelDebug:
-		return "DEBUG"
+		l.sugar.Debugw(message, fields...)
 	case LevelInfo:
-		return "INFO"
+		l.sugar.Infow(message, fields...)
 	case LevelWarn:
-		return "WARN"
+		l.sugar.Warnw(message, fields...)
 	case LevelError:
-		return "ERROR"
-	default:
-		return "UNKNOWN"
+		l.sugar.Errorw(message, fields...)
 	}
 }
 
-// LogEvent represents a structured log event with common fields for job processing.
-type LogEvent struct {
-	Message   string
-	Level     Level
-	JobName   string
-	Attempt   int
-	Error     error
-	Duration  time.Duration
-	ExtraKeys []interface{}
-}
+// Debug implements Logger.
+func (l *zapLogger) Debug(message string, fields ...interface{}) { l.sugar.Debugw(message, fields...) }
 
-// Flatten converts a LogEvent to a flat key-value slice for the Logger.
-func (le *LogEvent) Flatten() (message string, fields []interface{}) {
-	message = le.Message
-	fields = make([]interface{}, 0)
+// Info implements Logger.
+func (l *zapLogger) Info(message string, fields ...interface{}) { l.sugar.Infow(message, fields...) }
 
-	if le.JobName != "" {
-		fields = append(fields, string(FieldJobName), le.JobName)
-	}
-	if le.Attempt > 0 {
-		fields = append(fields, string(FieldAttempt), le.Attempt)
-	}
-	if le.Error != nil {
-		fields = append(fields, string(FieldError), le.Error.Error())
-	}
-	if le.Duration > 0 {
-		fields = append(fields, string(FieldDurationMs), le.Duration.Milliseconds())
-	}
-	fields = append(fields, le.ExtraKeys...)
+// Warn implements Logger.
+func (l *zapLogger) Warn(message string, fields ...interface{}) { l.sugar.Warnw(message, fields...) }
 
-	return
+// Error implements Logger.
+func (l *zapLogger) Error(message string, fields ...interface{}) { l.sugar.Errorw(message, fields...) }
+
+// NewLogger creates a structured logger that writes to w as JSON using zap,
+// along with a closer that flushes the logger and closes w when it implements
+// io.Closer. Call the closer (typically via defer) to release the write stream.
+// The logger is safe for concurrent use; writes are serialized with a mutex.
+func NewLogger(w io.Writer) (Logger, func() error) {
+	core := zapcore.NewCore(
+		zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()),
+		zapcore.Lock(zapcore.AddSync(w)),
+		zapcore.DebugLevel,
+	)
+	sugar := zap.New(core).Sugar()
+
+	closer := func() error {
+		if err := sugar.Sync(); err != nil {
+			return err
+		}
+		if c, ok := w.(io.Closer); ok {
+			return c.Close()
+		}
+		return nil
+	}
+
+	return &zapLogger{sugar: sugar}, closer
 }
 
 // LogSubmitEnqueued logs a successful job submission.

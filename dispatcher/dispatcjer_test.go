@@ -968,7 +968,7 @@ func TestLoggingContainsRequiredFields(t *testing.T) {
 	}
 }
 
-// TestLoggingWithNilLogger verifies dispatcher works with nil logger (NoOpLogger).
+// TestLoggingWithNilLogger verifies dispatcher works with nil logger (logging disabled).
 func TestLoggingWithNilLogger(t *testing.T) {
 	cfg := config.Config{
 		Backend:         config.InMemory,
@@ -981,7 +981,7 @@ func TestLoggingWithNilLogger(t *testing.T) {
 		ShutdownTimeout: 5 * time.Second,
 	}
 
-	// Create dispatcher without logger (should use NoOpLogger)
+	// Create dispatcher without logger (logging disabled)
 	d := dispatcher.New(cfg, nil)
 	defer d.Close(context.Background())
 

@@ -12,6 +12,7 @@
 - Job timeouts and retry delays
 - Panic recovery per job execution
 - Atomic queue metrics
+- Structured logging via zap (opt-in)
 
 ## Basic Usage
 
@@ -100,6 +101,19 @@ func (j EmailJob) Name() string { return "send email" }
 ```
 
 Jobs that don't implement `Name()` are identified by their type name; anonymous types resolve to `"anonymous"`.
+
+## Logging
+
+Logging is disabled by default. To enable it, pass `WithLogger` to `NewQueue` with an `io.Writer` to write JSON logs to; it returns an option plus a closer that flushes and closes the write stream:
+
+```go
+logOpt, stopLogging := gokue.WithLogger(os.Stdout)
+defer stopLogging()
+
+q, err := gokue.NewQueue(logOpt)
+```
+
+Omit `WithLogger` to keep the queue silent.
 
 ## Shutdown
 

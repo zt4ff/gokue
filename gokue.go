@@ -4,6 +4,7 @@ package gokue
 import (
 	"context"
 	"errors"
+	"io"
 	"time"
 
 	"github.com/zt4ff/gokue/config"
@@ -44,8 +45,6 @@ type Queue struct {
 	dispatcher *dispatcher.Dispatcher
 	// collector tracks execution statistics.
 	collector *stats.Collector
-	// logger provides structured logging.
-	logger logging.Logger
 }
 
 // WithConfig returns an Option that sets the entire configuration.
@@ -105,27 +104,27 @@ func WithShutdownTimeout(timeout time.Duration) Option {
 	}
 }
 
-// QueueLoggerOption sets the logger for a Queue.
-// This is separate from the regular Option type since it's not part of Config.
-type QueueLoggerOption func(*logging.Logger)
-
-// WithLogger returns an Option that sets the logger for the queue.
-func WithLogger(logger logging.Logger) QueueLoggerOption {
-	return func(target *logging.Logger) {
-		*target = logger
-	}
+// WithLogger enables structured logging to w and returns the Option to pass to
+// NewQueue plus a closer that flushes the logger and closes the write stream.
+// Call the closer (typically via defer) when the queue is no longer needed.
+// Logging is disabled by default; omit this option to leave it off.
+func WithLogger(w io.Writer) (Option, func() error) {
+	logger, closer := logging.NewLogger(w)
+	return func(target *config.Config) {
+		target.Logger = logger
+	}, closer
 }
 
 // NewQueue creates and returns a new Queue with the provided configuration options.
 // It returns an error if the configuration is invalid.
-// The queue will use a NoOpLogger (logging disabled) by default.
+// Logging is disabled by default; pass WithLogger to enable it.
 func NewQueue(options ...Option) (*Queue, error) {
 	return NewQueueWithLogger(nil, options...)
 }
 
 // NewQueueWithLogger creates and returns a new Queue with the provided configuration options and logger.
 // It returns an error if the configuration is invalid.
-// If logger is nil, a NoOpLogger (logging disabled) will be used.
+// If logger is nil, logging is disabled.
 func NewQueueWithLogger(logger logging.Logger, options ...Option) (*Queue, error) {
 	queueConfig := config.Default()
 	for _, option := range options {
@@ -133,22 +132,20 @@ func NewQueueWithLogger(logger logging.Logger, options ...Option) (*Queue, error
 			option(&queueConfig)
 		}
 	}
+	if logger != nil {
+		queueConfig.Logger = logger
+	}
 
 	if err := queueConfig.Validate(); err != nil {
 		return nil, err
-	}
-
-	if logger == nil {
-		logger = &logging.NoOpLogger{}
 	}
 
 	collector := stats.NewCollector()
 	queue := &Queue{
 		config:    queueConfig,
 		collector: collector,
-		logger:    logger,
 	}
-	queue.dispatcher = dispatcher.NewWithLogger(queueConfig, collector, logger)
+	queue.dispatcher = dispatcher.NewWithLogger(queueConfig, collector, queueConfig.Logger)
 
 	return queue, nil
 }
