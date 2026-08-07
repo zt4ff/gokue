@@ -13,7 +13,7 @@ const (
 	// InMemory is the configuration to use in-memory backend.
 	InMemory = "in-memory"
 	// MongoDB is the configuration to use Mongo DB backend.
-	MongoDB = "mongo-db"
+	// MongoDB = "mongo-db"
 )
 
 // Backoff strategy
@@ -122,7 +122,7 @@ func Default() Config {
 // Validate checks if the Config is valid and returns an error if any field is invalid.
 func (c *Config) Validate() error {
 	switch c.Backend {
-	case InMemory, MongoDB:
+	case InMemory:
 	default:
 		return fmt.Errorf("%w: unsupported backend %q", ErrInvalidConfig, c.Backend)
 	}

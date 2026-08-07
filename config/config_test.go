@@ -54,14 +54,6 @@ func TestValidateValidConfigs(t *testing.T) {
 				BackoffStrategy: Constant,
 			},
 		},
-		"mongo-db with linear backoff": {
-			config: Config{
-				Backend:         MongoDB,
-				WorkerCount:     4,
-				QueueSize:       10,
-				BackoffStrategy: Linear,
-			},
-		},
 		"exponential-jitter backoff": {
 			config: Config{
 				Backend:         InMemory,
