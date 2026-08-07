@@ -68,7 +68,7 @@ func TestLogEventFlattening(t *testing.T) {
 	// Verify job_name is in fields
 	found := false
 	for i := 0; i < len(fields); i += 2 {
-		if i+1 < len(fields) && fields[i] == "job_name" && fields[i+1] == "my-job" {
+		if i+1 < len(fields) && fields[i] == string(FieldJobName) && fields[i+1] == "my-job" {
 			found = true
 			break
 		}
@@ -83,12 +83,13 @@ func TestLogHelperFunctions(t *testing.T) {
 	logger := &NoOpLogger{}
 
 	// These should not panic
-	LogSubmitAccepted(logger, "job-name")
-	LogSubmitRejected(logger, "job-name", "queue_full")
+	LogSubmitEnqueued(logger, "job-name")
+	LogSubmitRejected(logger, "job-name", ReasonQueueFull)
 	LogJobProcessing(logger, "job-name", 1)
 	LogJobRetry(logger, "job-name", 1, nil, 0)
 	LogJobSuccess(logger, "job-name", 0)
 	LogJobFailure(logger, "job-name", 3, nil, 0)
+	LogJobAbandoned(logger, "job-name", 1, ReasonDispatcherShutdown, 0)
 	LogCloseStart(logger, "drain")
 	LogCloseComplete(logger, "drain", 0, nil)
 	LogJobPanic(logger, "job-name", "something")
@@ -100,12 +101,13 @@ func TestLogHelperFunctionsWithNilLogger(t *testing.T) {
 	var logger Logger = nil
 
 	// These should not panic even with nil logger
-	LogSubmitAccepted(logger, "job-name")
-	LogSubmitRejected(logger, "job-name", "queue_full")
+	LogSubmitEnqueued(logger, "job-name")
+	LogSubmitRejected(logger, "job-name", ReasonQueueFull)
 	LogJobProcessing(logger, "job-name", 1)
 	LogJobRetry(logger, "job-name", 1, nil, 0)
 	LogJobSuccess(logger, "job-name", 0)
 	LogJobFailure(logger, "job-name", 3, nil, 0)
+	LogJobAbandoned(logger, "job-name", 1, ReasonDispatcherShutdown, 0)
 	LogCloseStart(logger, "drain")
 	LogCloseComplete(logger, "drain", 0, nil)
 	LogJobPanic(logger, "job-name", "something")

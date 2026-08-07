@@ -15,6 +15,8 @@ type Collector struct {
 	retried atomic.Uint64
 	// dropped counts the number of jobs dropped (queue full or cancelled).
 	dropped atomic.Uint64
+	// retryPredicatesFailed counts the number of jobs that failed a retry predicate function.
+	retryPredicatesFailed atomic.Uint64
 }
 
 // Snapshot represents a point-in-time capture of queue statistics.
@@ -29,6 +31,8 @@ type Snapshot struct {
 	Retried uint64
 	// Dropped is the total number of jobs dropped.
 	Dropped uint64
+	// RetryPredicatesFailed is the total number of job that failed a retry predicate function.
+	RetryPredicatesFailed uint64
 }
 
 // NewCollector creates and returns a new Collector initialized with zero values.
@@ -61,13 +65,19 @@ func (c *Collector) IncDropped() {
 	c.dropped.Add(1)
 }
 
+// IncRetryPredicatesFailed increments the retryPredicatesFailed counter
+func (c *Collector) IncRetryPredicatesFailed() {
+	c.retryPredicatesFailed.Add(1)
+}
+
 // Snapshot returns a snapshot of the current statistics.
 func (c *Collector) Snapshot() Snapshot {
 	return Snapshot{
-		Enqueued:  c.enqueued.Load(),
-		Processed: c.processed.Load(),
-		Failed:    c.failed.Load(),
-		Retried:   c.retried.Load(),
-		Dropped:   c.dropped.Load(),
+		Enqueued:              c.enqueued.Load(),
+		Processed:             c.processed.Load(),
+		Failed:                c.failed.Load(),
+		Retried:               c.retried.Load(),
+		Dropped:               c.dropped.Load(),
+		RetryPredicatesFailed: c.retryPredicatesFailed.Load(),
 	}
 }

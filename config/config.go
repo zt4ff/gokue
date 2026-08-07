@@ -94,6 +94,10 @@ type Config struct {
 	BackoffStrategy string
 	// ShutdownTimeout is the maximum duration to wait for graceful shutdown.
 	ShutdownTimeout time.Duration
+	// RetryPredicates allows config-wide callback checks on when to retry failed jobs.
+	//
+	// If it returns `true`, the dispatcher will attempt to retry the job
+	RetryPredicates func(error) bool
 }
 
 // ErrInvalidConfig is an error where config for a queue is invalid.
@@ -111,6 +115,7 @@ func Default() Config {
 		MaxRetryDelay:   30 * time.Second,
 		ShutdownTimeout: 10 * time.Second,
 		BackoffStrategy: Exponential,
+		RetryPredicates: nil,
 	}
 }
 
