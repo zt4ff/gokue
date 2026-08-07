@@ -54,6 +54,8 @@ type Task struct {
 	MaxRetries *int
 	// RetryDelay overrides the global RetryDelay for this task when non-nil.
 	RetryDelay *time.Duration
+	// RetryPredicates override the global RetryPredicates for this task when non-nill.
+	RetryPredicates func(error) bool
 }
 
 // Dispatcher manages a pool of workers to execute tasks with configurable retry logic
@@ -346,6 +348,11 @@ func (d *Dispatcher) execute(task Task) {
 		retryBaseDelay = *task.RetryDelay
 	}
 
+	retryPredicates := d.cfg.RetryPredicates
+	if task.RetryPredicates != nil {
+		retryPredicates = task.RetryPredicates
+	}
+
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		d.logger.Debug("job_processing", "job_name", task.Name, "attempt", attempt+1)
 
@@ -358,6 +365,21 @@ func (d *Dispatcher) execute(task Task) {
 				"status", "success",
 				"duration_ms", duration.Milliseconds())
 			return
+		}
+
+		if retryPredicates != nil {
+			if retryPredicates(err) {
+				continue
+			}
+			// retryPredicates failed
+			duration := time.Since(startTime)
+			d.collector.IncRetryPredicatesFailed()
+			d.logger.Error("job_failed",
+				"job_name", task.Name,
+				"error", err.Error(),
+				"duration_ms", duration.Milliseconds(),
+				"status", "final_failure")
+			break
 		}
 
 		if attempt < maxRetries {
