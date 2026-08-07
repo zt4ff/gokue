@@ -1002,3 +1002,449 @@ func TestLoggingWithNilLogger(t *testing.T) {
 		t.Errorf("expected 1 processed, got %d", stats.Processed)
 	}
 }
+
+// blockingJob blocks until released or the context is cancelled.
+type blockingJob struct {
+	release chan struct{}
+}
+
+func (j *blockingJob) Process(ctx context.Context) error {
+	select {
+	case <-j.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// TestRetryPredicateAllowsAllRetries verifies that a retry predicate returning
+// true lets the job retry without the normal retry delay or retry counter.
+func TestRetryPredicateAllowsAllRetries(t *testing.T) {
+	cfg := config.Config{
+		Backend:         config.InMemory,
+		BackoffStrategy: config.Exponential,
+		QueueSize:       10,
+		WorkerCount:     1,
+		MaxRetries:      2,
+		JobTimeout:      5 * time.Second,
+		RetryDelay:      0,
+		ShutdownTimeout: 5 * time.Second,
+		RetryPredicates: func(error) bool { return true },
+	}
+
+	d := dispatcher.NewWithLogger(cfg, nil, &recordingLogger{})
+	defer d.Close(context.Background())
+
+	attempts := &atomic.Int32{}
+	task := dispatcher.Task{
+		Name: "test-job",
+		Job:  &failJob{attempts: attempts},
+	}
+	if err := d.Submit(context.Background(), task); err != nil {
+		t.Fatalf("submit failed: %v", err)
+	}
+
+	time.Sleep(300 * time.Millisecond)
+
+	if got := attempts.Load(); got != 3 {
+		t.Errorf("expected 3 attempts (initial + 2 retries), got %d", got)
+	}
+
+	stats := d.Stats()
+	if stats.Retried != 2 {
+		t.Errorf("expected Retried 2, got %d", stats.Retried)
+	}
+	if stats.RetryPredicatesFailed != 0 {
+		t.Errorf("expected RetryPredicatesFailed 0, got %d", stats.RetryPredicatesFailed)
+	}
+	if stats.Failed != 1 {
+		t.Errorf("expected Failed 1, got %d", stats.Failed)
+	}
+}
+
+// TestRetryPredicateBlocksRetry verifies that a retry predicate returning false
+// stops retrying immediately and records a retry-predicate failure.
+func TestRetryPredicateBlocksRetry(t *testing.T) {
+	cfg := config.Config{
+		Backend:         config.InMemory,
+		BackoffStrategy: config.Exponential,
+		QueueSize:       10,
+		WorkerCount:     1,
+		MaxRetries:      5,
+		JobTimeout:      5 * time.Second,
+		RetryDelay:      0,
+		ShutdownTimeout: 5 * time.Second,
+		RetryPredicates: func(error) bool { return false },
+	}
+
+	d := dispatcher.NewWithLogger(cfg, nil, &recordingLogger{})
+	defer d.Close(context.Background())
+
+	attempts := &atomic.Int32{}
+	task := dispatcher.Task{
+		Name: "test-job",
+		Job:  &failJob{attempts: attempts},
+	}
+	if err := d.Submit(context.Background(), task); err != nil {
+		t.Fatalf("submit failed: %v", err)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	if got := attempts.Load(); got != 1 {
+		t.Errorf("expected 1 attempt (predicate blocked retry), got %d", got)
+	}
+
+	stats := d.Stats()
+	if stats.RetryPredicatesFailed != 1 {
+		t.Errorf("expected RetryPredicatesFailed 1, got %d", stats.RetryPredicatesFailed)
+	}
+	if stats.Failed != 1 {
+		t.Errorf("expected Failed 1, got %d", stats.Failed)
+	}
+	if stats.Retried != 0 {
+		t.Errorf("expected Retried 0, got %d", stats.Retried)
+	}
+}
+
+// TestRetryPredicateTaskOverride verifies that a per-task retry predicate
+// replaces the config-level predicate.
+func TestRetryPredicateTaskOverride(t *testing.T) {
+	cfg := config.Config{
+		Backend:         config.InMemory,
+		BackoffStrategy: config.Exponential,
+		QueueSize:       10,
+		WorkerCount:     1,
+		MaxRetries:      5,
+		JobTimeout:      5 * time.Second,
+		RetryDelay:      0,
+		ShutdownTimeout: 5 * time.Second,
+		RetryPredicates: func(error) bool { return false },
+	}
+
+	d := dispatcher.NewWithLogger(cfg, nil, &recordingLogger{})
+	defer d.Close(context.Background())
+
+	attempts := &atomic.Int32{}
+	task := dispatcher.Task{
+		Name:            "test-job",
+		Job:             &failJob{attempts: attempts},
+		RetryPredicates: func(error) bool { return true },
+	}
+	if err := d.Submit(context.Background(), task); err != nil {
+		t.Fatalf("submit failed: %v", err)
+	}
+
+	time.Sleep(300 * time.Millisecond)
+
+	if got := attempts.Load(); got != 6 {
+		t.Errorf("expected 6 attempts (config predicate overridden), got %d", got)
+	}
+
+	stats := d.Stats()
+	if stats.RetryPredicatesFailed != 0 {
+		t.Errorf("expected RetryPredicatesFailed 0, got %d", stats.RetryPredicatesFailed)
+	}
+}
+
+// TestTaskMaxRetriesOverride verifies that a per-task MaxRetries replaces the
+// config value.
+func TestTaskMaxRetriesOverride(t *testing.T) {
+	cfg := config.Config{
+		Backend:         config.InMemory,
+		BackoffStrategy: config.Exponential,
+		QueueSize:       10,
+		WorkerCount:     1,
+		MaxRetries:      0,
+		JobTimeout:      5 * time.Second,
+		RetryDelay:      10 * time.Millisecond,
+		ShutdownTimeout: 5 * time.Second,
+	}
+
+	d := dispatcher.NewWithLogger(cfg, nil, &recordingLogger{})
+	defer d.Close(context.Background())
+
+	attempts := &atomic.Int32{}
+	maxRetries := 2
+	task := dispatcher.Task{
+		Name:       "test-job",
+		Job:        &failJob{attempts: attempts},
+		MaxRetries: &maxRetries,
+	}
+	if err := d.Submit(context.Background(), task); err != nil {
+		t.Fatalf("submit failed: %v", err)
+	}
+
+	time.Sleep(300 * time.Millisecond)
+
+	if got := attempts.Load(); got != 3 {
+		t.Errorf("expected 3 attempts (task override), got %d", got)
+	}
+}
+
+// TestTaskRetryDelayOverride verifies that a per-task RetryDelay replaces the
+// config value.
+func TestTaskRetryDelayOverride(t *testing.T) {
+	cfg := config.Config{
+		Backend:         config.InMemory,
+		BackoffStrategy: config.Constant,
+		QueueSize:       10,
+		WorkerCount:     1,
+		MaxRetries:      1,
+		JobTimeout:      5 * time.Second,
+		RetryDelay:      30 * time.Second,
+		ShutdownTimeout: 5 * time.Second,
+	}
+
+	d := dispatcher.NewWithLogger(cfg, nil, &recordingLogger{})
+	defer d.Close(context.Background())
+
+	attempts := &atomic.Int32{}
+	retryDelay := 10 * time.Millisecond
+	task := dispatcher.Task{
+		Name:       "test-job",
+		Job:        &failJob{attempts: attempts},
+		RetryDelay: &retryDelay,
+	}
+	if err := d.Submit(context.Background(), task); err != nil {
+		t.Fatalf("submit failed: %v", err)
+	}
+
+	start := time.Now()
+	for {
+		if attempts.Load() >= 2 {
+			break
+		}
+		if time.Since(start) > 5*time.Second {
+			t.Fatal("timed out waiting for retry")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("expected quick retry via task override, took %v", elapsed)
+	}
+}
+
+// TestSubmitDerivesNameFromJob verifies that an empty task name is derived from
+// the job's type.
+func TestSubmitDerivesNameFromJob(t *testing.T) {
+	cfg := config.Config{
+		Backend:         config.InMemory,
+		BackoffStrategy: config.Exponential,
+		QueueSize:       10,
+		WorkerCount:     1,
+		MaxRetries:      0,
+		JobTimeout:      5 * time.Second,
+		RetryDelay:      0,
+		ShutdownTimeout: 5 * time.Second,
+	}
+
+	logger := &recordingLogger{}
+	d := dispatcher.NewWithLogger(cfg, nil, logger)
+	defer d.Close(context.Background())
+
+	task := dispatcher.Task{Job: &successJob{}}
+	if err := d.Submit(context.Background(), task); err != nil {
+		t.Fatalf("submit failed: %v", err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	submitted := logger.findLog(logging.EventSubmitEnqueued)
+	if submitted == nil {
+		t.Fatal("expected job_submitted log")
+	}
+	for i := 0; i < len(submitted.fields); i += 2 {
+		if submitted.fields[i] == string(logging.FieldJobName) && submitted.fields[i+1] == "successJob" {
+			return
+		}
+	}
+	t.Errorf("expected derived job_name field, got %v", submitted.fields)
+}
+
+// TestSubmitContextCancelled verifies that a cancelled context drops the
+// submission and increments the dropped counter.
+func TestSubmitContextCancelled(t *testing.T) {
+	cfg := config.Config{
+		Backend:         config.InMemory,
+		BackoffStrategy: config.Exponential,
+		QueueSize:       1,
+		WorkerCount:     1,
+		MaxRetries:      0,
+		JobTimeout:      5 * time.Second,
+		RetryDelay:      0,
+		ShutdownTimeout: 5 * time.Second,
+	}
+
+	d := dispatcher.NewWithLogger(cfg, nil, &recordingLogger{})
+	block := make(chan struct{})
+	defer d.Close(context.Background())
+	defer close(block)
+
+	// Block the only worker and fill the queue so the next send would block.
+	if err := d.Submit(context.Background(), dispatcher.Task{Name: "block", Job: &blockingJob{release: block}}); err != nil {
+		t.Fatalf("submit blocking job failed: %v", err)
+	}
+	if err := d.Submit(context.Background(), dispatcher.Task{Name: "fill", Job: &successJob{}}); err != nil {
+		t.Fatalf("submit fill job failed: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := d.Submit(ctx, dispatcher.Task{Name: "cancelled", Job: &successJob{}})
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled, got %v", err)
+	}
+	if got := d.Stats().Dropped; got != 1 {
+		t.Errorf("expected Dropped 1, got %d", got)
+	}
+}
+
+// TestTrySubmitNilContext verifies TrySubmit validates the context.
+func TestTrySubmitNilContext(t *testing.T) {
+	d := setup(t)
+	defer d.Close(context.Background())
+
+	task := dispatcher.Task{Name: "test-job", Job: &successJob{}}
+	//lint:ignore SA1012 Intentionally passing a nil context to verify validation.
+	err := d.TrySubmit(nil, task)
+	if !errors.Is(err, dispatcher.ErrNilCtx) {
+		t.Errorf("expected ErrNilCtx, got %v", err)
+	}
+}
+
+// TestTrySubmitNilJob verifies TrySubmit validates the job.
+func TestTrySubmitNilJob(t *testing.T) {
+	d := setup(t)
+	defer d.Close(context.Background())
+
+	task := dispatcher.Task{Name: "test-job"}
+	err := d.TrySubmit(context.Background(), task)
+	if !errors.Is(err, dispatcher.ErrNilJob) {
+		t.Errorf("expected ErrNilJob, got %v", err)
+	}
+}
+
+// TestTrySubmitClosed verifies TrySubmit rejects submissions after Close.
+func TestTrySubmitClosed(t *testing.T) {
+	d := setup(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	d.Close(ctx)
+
+	task := dispatcher.Task{Name: "test-job", Job: &successJob{}}
+	err := d.TrySubmit(context.Background(), task)
+	if !errors.Is(err, dispatcher.ErrClosed) {
+		t.Errorf("expected ErrClosed, got %v", err)
+	}
+}
+
+// TestTrySubmitEnqueues verifies TrySubmit succeeds when the queue has capacity.
+func TestTrySubmitEnqueues(t *testing.T) {
+	cfg := config.Config{
+		Backend:         config.InMemory,
+		BackoffStrategy: config.Exponential,
+		QueueSize:       10,
+		WorkerCount:     1,
+		MaxRetries:      0,
+		JobTimeout:      5 * time.Second,
+		RetryDelay:      0,
+		ShutdownTimeout: 5 * time.Second,
+	}
+
+	d := dispatcher.NewWithLogger(cfg, nil, &recordingLogger{})
+	defer d.Close(context.Background())
+
+	task := dispatcher.Task{Job: &successJob{}}
+	if err := d.TrySubmit(context.Background(), task); err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	stats := d.Stats()
+	if stats.Enqueued != 1 || stats.Processed != 1 {
+		t.Errorf("expected Enqueued 1 and Processed 1, got %+v", stats)
+	}
+}
+
+// panicOnEventLogger records log calls and panics on the first call that matches
+// panicOn, letting tests exercise the worker's internal panic recovery.
+type panicOnEventLogger struct {
+	mu       sync.Mutex
+	calls    int
+	panicOn  string
+	panicked bool
+}
+
+func (l *panicOnEventLogger) Log(level logging.Level, message string, fields ...interface{}) {
+	l.mu.Lock()
+	l.calls++
+	shouldPanic := message == l.panicOn && !l.panicked
+	if shouldPanic {
+		l.panicked = true
+	}
+	l.mu.Unlock()
+	if shouldPanic {
+		panic("injected logger panic")
+	}
+}
+
+func (l *panicOnEventLogger) Debug(message string, fields ...interface{}) {
+	l.Log(logging.LevelDebug, message, fields...)
+}
+
+func (l *panicOnEventLogger) Info(message string, fields ...interface{}) {
+	l.Log(logging.LevelInfo, message, fields...)
+}
+
+func (l *panicOnEventLogger) Warn(message string, fields ...interface{}) {
+	l.Log(logging.LevelWarn, message, fields...)
+}
+
+func (l *panicOnEventLogger) Error(message string, fields ...interface{}) {
+	l.Log(logging.LevelError, message, fields...)
+}
+
+func (l *panicOnEventLogger) count() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.calls
+}
+
+// TestWorkerRecoversFromInternalPanic verifies that a panic in dispatcher
+// internals (not the job) is recovered and logged without crashing the process.
+func TestWorkerRecoversFromInternalPanic(t *testing.T) {
+	cfg := config.Config{
+		Backend:         config.InMemory,
+		BackoffStrategy: config.Exponential,
+		QueueSize:       10,
+		WorkerCount:     1,
+		MaxRetries:      0,
+		JobTimeout:      5 * time.Second,
+		RetryDelay:      0,
+		ShutdownTimeout: 5 * time.Second,
+	}
+
+	logger := &panicOnEventLogger{panicOn: string(logging.EventJobFailed)}
+	d := dispatcher.NewWithLogger(cfg, nil, logger)
+	defer d.Close(context.Background())
+
+	task := dispatcher.Task{
+		Name: "test-job",
+		Job:  &failJob{attempts: &atomic.Int32{}},
+	}
+	if err := d.Submit(context.Background(), task); err != nil {
+		t.Fatalf("submit failed: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Log calls: job_submitted, job_processing_started, job_failed (panics and is
+	// recovered), then worker_panic. A count below 4 means the recover path never ran.
+	if got := logger.count(); got < 4 {
+		t.Errorf("expected at least 4 log calls after worker panic, got %d", got)
+	}
+}

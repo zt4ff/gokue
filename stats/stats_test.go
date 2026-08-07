@@ -42,6 +42,10 @@ func TestCollectorIncrements(t *testing.T) {
 			increment: (*Collector).IncDropped,
 			field:     func(s Snapshot) uint64 { return s.Dropped },
 		},
+		"retry predicates failed": {
+			increment: (*Collector).IncRetryPredicatesFailed,
+			field:     func(s Snapshot) uint64 { return s.RetryPredicatesFailed },
+		},
 	}
 
 	for name, testcase := range testcases {
@@ -70,6 +74,7 @@ func TestCollectorSnapshot(t *testing.T) {
 	c.IncRetried()
 	c.IncRetried()
 	c.IncDropped()
+	c.IncRetryPredicatesFailed()
 
 	snap := c.Snapshot()
 	if snap.Enqueued != 3 {
@@ -86,6 +91,9 @@ func TestCollectorSnapshot(t *testing.T) {
 	}
 	if snap.Dropped != 1 {
 		t.Errorf("expected Dropped 1, got %d", snap.Dropped)
+	}
+	if snap.RetryPredicatesFailed != 1 {
+		t.Errorf("expected RetryPredicatesFailed 1, got %d", snap.RetryPredicatesFailed)
 	}
 }
 
