@@ -16,11 +16,11 @@ This document maps each item from `todo.txt` to GitHub issues. Labels appear in 
   - nil predicate means "always retry" (current behavior)
   - All existing tests continue to pass
 
-### 2. [`enhancement`] Per-Job-Type Stat Breakdown
+### 2. [`enhancement`] Per-Job-Type Stat Breakdown SKIPPED/NEEDS-RESEARCH
 
 - **Issue Title:** Add per-job-type statistics breakdown
 - **Labels:** `enhancement`
-- **Description:** `stats.Snapshot` currently returns aggregate counters (enqueued, processed, failed, retried, dropped). Users need per-job-name visibility to see which job types are failing most, which are slowest, etc. This would break down stats by job name, optionally with latency histograms.
+- **Description:** `stats.Snapshot` currently returns aggregate counters (enqueued, processed, failed, retried, dropped). Users need per-job-name visibility to see which job types are failing most, which are slowest, etc. This would break down stats by job name, optionaly with latency information.
 - **Acceptance Criteria:**
   - `Queue.Stats()` still returns aggregate totals (backward compat)
   - New method returns per-job-name breakdown
