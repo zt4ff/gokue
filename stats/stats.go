@@ -15,7 +15,7 @@ type Collector struct {
 	retried atomic.Uint64
 	// dropped counts the number of jobs dropped (queue full or cancelled).
 	dropped atomic.Uint64
-	// retryPredicatesFailed counts the number of jobs that failed after a retry predicates
+	// retryPredicatesFailed counts the number of jobs that failed a retry predicate function.
 	retryPredicatesFailed atomic.Uint64
 }
 
@@ -31,7 +31,7 @@ type Snapshot struct {
 	Retried uint64
 	// Dropped is the total number of jobs dropped.
 	Dropped uint64
-	// RetryPredicatesFailed is the total number of job that failed after a retry predicates
+	// RetryPredicatesFailed is the total number of job that failed a retry predicate function.
 	RetryPredicatesFailed uint64
 }
 

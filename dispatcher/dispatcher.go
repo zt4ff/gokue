@@ -54,7 +54,7 @@ type Task struct {
 	MaxRetries *int
 	// RetryDelay overrides the global RetryDelay for this task when non-nil.
 	RetryDelay *time.Duration
-	// RetryPredicates override the global RetryPredicates for this task when non-nill.
+	// RetryPredicates overrides the global RetryPredicates for this task when non-nil.
 	RetryPredicates func(error) bool
 }
 
