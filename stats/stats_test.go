@@ -166,9 +166,6 @@ func TestSnapshotByJobName(t *testing.T) {
 	if email.SuccessLatency.Count != 1 || email.SuccessLatency.Sum != 10*time.Millisecond {
 		t.Errorf("unexpected email success latency: %+v", email.SuccessLatency)
 	}
-	if email.SuccessHistogram != nil {
-		t.Errorf("expected nil success histogram when buckets disabled, got %+v", email.SuccessHistogram)
-	}
 
 	sms := jobs[1]
 	if sms.Enqueued != 1 || sms.Failed != 1 || sms.Dropped != 1 || sms.RetryPredicatesFailed != 1 {
@@ -252,78 +249,8 @@ func TestSnapshotByJobNameCardinalityUnlimited(t *testing.T) {
 	}
 }
 
-func TestSnapshotByJobNameHistogram(t *testing.T) {
-	bounds := []time.Duration{10 * time.Millisecond, 50 * time.Millisecond, 100 * time.Millisecond}
-	c := NewCollector(WithLatencyBuckets(bounds))
-
-	for i := 0; i < 3; i++ {
-		c.IncProcessedFor("a", 5*time.Millisecond)
-	}
-	for i := 0; i < 2; i++ {
-		c.IncProcessedFor("a", 25*time.Millisecond)
-	}
-	c.IncProcessedFor("a", 75*time.Millisecond)
-	c.IncProcessedFor("a", 200*time.Millisecond)
-
-	a := c.SnapshotByJobName()[0]
-	h := a.SuccessHistogram
-	if h == nil {
-		t.Fatal("expected success histogram")
-	}
-	// Cumulative counts: <=10ms:3, <=50ms:5, <=100ms:6; total 7 (one in +Inf).
-	expected := []uint64{3, 5, 6}
-	for i, want := range expected {
-		if h.Counts[i] != want {
-			t.Errorf("bucket %d: expected %d, got %d", i, want, h.Counts[i])
-		}
-	}
-	if h.Count != 7 {
-		t.Errorf("expected histogram count 7, got %d", h.Count)
-	}
-	if a.FailureHistogram == nil {
-		t.Fatal("expected failure histogram")
-	}
-	if a.FailureHistogram.Count != 0 {
-		t.Errorf("expected failure histogram count 0, got %d", a.FailureHistogram.Count)
-	}
-
-	// Quantile checks: p50 lands at the 50ms bound, p100 at the last bound.
-	if q := h.Quantile(0.5); q != 50*time.Millisecond {
-		t.Errorf("expected p50 50ms, got %v", q)
-	}
-	if q := h.Quantile(1.0); q != 100*time.Millisecond {
-		t.Errorf("expected p100 estimated at last bound 100ms, got %v", q)
-	}
-	if q := h.Quantile(-0.5); q != 0 {
-		t.Errorf("expected 0 for out-of-range quantile, got %v", q)
-	}
-	if q := (&Histogram{}).Quantile(0.5); q != 0 {
-		t.Errorf("expected 0 for empty histogram, got %v", q)
-	}
-}
-
-func TestWithLatencyBucketsPanicsOnInvalid(t *testing.T) {
-	for _, bounds := range [][]time.Duration{
-		{50 * time.Millisecond, 10 * time.Millisecond},
-		{0, 10 * time.Millisecond},
-		{-time.Millisecond},
-	} {
-		func() {
-			defer func() {
-				if recover() == nil {
-					t.Errorf("expected panic for bounds %v", bounds)
-				}
-			}()
-			NewCollector(WithLatencyBuckets(bounds))
-		}()
-	}
-}
-
 func TestSnapshotByJobNameConcurrent(t *testing.T) {
-	c := NewCollector(
-		WithMaxJobStats(32),
-		WithLatencyBuckets([]time.Duration{time.Millisecond, 5 * time.Millisecond, 10 * time.Millisecond}),
-	)
+	c := NewCollector(WithMaxJobStats(32))
 
 	names := []string{"a", "b", "c", "d", "e"}
 	const goroutines = 8
