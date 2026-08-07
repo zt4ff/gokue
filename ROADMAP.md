@@ -16,7 +16,7 @@ This document maps each item from `todo.txt` to GitHub issues. Labels appear in 
   - nil predicate means "always retry" (current behavior)
   - All existing tests continue to pass
 
-### 2. [`enhancement`] Per-Job-Type Stat Breakdown DONE
+### 2. [`enhancement`] Per-Job-Type Stat Breakdown
 
 - **Issue Title:** Add per-job-type statistics breakdown
 - **Labels:** `enhancement`
@@ -27,7 +27,7 @@ This document maps each item from `todo.txt` to GitHub issues. Labels appear in 
   - Counters correctly accumulate per job type
   - Thread-safe under concurrent submit/execute
 
-### 3. [`enhancement`, `good-first-issue`] Structured Log Fields DONE
+### 3. [`enhancement`, `good-first-issue`] Structured Log Fields
 
 - **Issue Title:** Allow custom structured log fields
 - **Labels:** `enhancement`, `good-first-issue`
@@ -38,7 +38,7 @@ This document maps each item from `todo.txt` to GitHub issues. Labels appear in 
   - No extra alloc when fields are not used
   - Backward compatible — existing log calls unchanged
 
-### 4. [`enhancement`, `good-first-issue`] slog Adapter DONE
+### 4. [`enhancement`, `good-first-issue`] slog Adapter 
 
 - **Issue Title:** Implement `log/slog` adapter for the Logger interface
 - **Labels:** `enhancement`, `good-first-issue`
@@ -49,7 +49,7 @@ This document maps each item from `todo.txt` to GitHub issues. Labels appear in 
   - Level filtering works correctly (slog's built-in level handling)
   - Works with both `slog.NewJSONHandler` and `slog.NewTextHandler`
 
-### 5. [`documentation`, `good-first-issue`] Godoc Examples DONE
+### 5. [`documentation`, `good-first-issue`] Godoc Examples
 
 - **Issue Title:** Add runnable Godoc examples
 - **Labels:** `documentation`, `good-first-issue`
