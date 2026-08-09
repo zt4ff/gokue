@@ -145,7 +145,7 @@ func NewQueueWithLogger(logger logger.Logger, options ...Option) (*Queue, error)
 		config:    queueConfig,
 		collector: collector,
 	}
-	queue.dispatcher = dispatcher.NewWithLogger(queueConfig, collector, queueConfig.Logger)
+	queue.dispatcher = dispatcher.NewDispatcher(queueConfig, collector)
 
 	return queue, nil
 }

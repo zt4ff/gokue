@@ -96,22 +96,15 @@ type Dispatcher struct {
 // New creates a new Dispatcher with the given configuration and optional statistics collector.
 // If collector is nil, a new Collector is created. It starts the configured number of worker goroutines.
 // If logger is nil, logging is disabled.
-func New(cfg config.Config, collector *stats.Collector) *Dispatcher {
-	return NewWithLogger(cfg, collector, nil)
-}
-
-// NewWithLogger creates a new Dispatcher with the given configuration, statistics collector, and logger.
-// If collector is nil, a new Collector is created.
-// If logger is nil, logging is disabled.
-func NewWithLogger(cfg config.Config, collector *stats.Collector, logger logger.Logger) *Dispatcher {
+func NewDispatcher(cfg config.Config, collector *stats.Collector) *Dispatcher {
 	if collector == nil {
-		collector = stats.NewCollector()
+		collector = stats.NewCollector() // WIP users should provide their collector function and handle it themselve
 	}
 
 	d := &Dispatcher{
 		cfg:       cfg,
 		collector: collector,
-		logger:    logger,
+		logger:    cfg.Logger,
 		tasks:     make(chan Task, cfg.QueueSize),
 		quit:      make(chan struct{}),
 	}
