@@ -10,7 +10,7 @@ import (
 
 	"github.com/zt4ff/gokue/config"
 	"github.com/zt4ff/gokue/dispatcher"
-	"github.com/zt4ff/gokue/internal/logging"
+	logging "github.com/zt4ff/gokue/internal/logger"
 )
 
 func setup(t *testing.T) *dispatcher.Dispatcher {

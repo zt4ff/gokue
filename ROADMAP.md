@@ -27,27 +27,6 @@ This document maps each item from `todo.txt` to GitHub issues. Labels appear in 
   - Counters correctly accumulate per job type
   - Thread-safe under concurrent submit/execute
 
-### 3. [`enhancement`, `good-first-issue`] Structured Log Fields
-
-- **Issue Title:** Allow custom structured log fields
-- **Labels:** `enhancement`, `good-first-issue`
-- **Description:** The logging package uses `LogEvent` with fixed fields (`Message`, `Level`, `JobName`, `Attempt`, `Error`, `Duration`). Users should be able to attach arbitrary key-value pairs to log events, e.g., `request_id`, `trace_id`, or custom metadata from the job. This enables better correlation in log aggregation systems.
-- **Acceptance Criteria:**
-  - Users can attach arbitrary key-value fields per job submission
-  - Fields appear in all log events for that job (submit, processing, success, failure, retry)
-  - No extra alloc when fields are not used
-  - Backward compatible — existing log calls unchanged
-
-### 4. [`enhancement`, `good-first-issue`] slog Adapter 
-
-- **Issue Title:** Implement `log/slog` adapter for the Logger interface
-- **Labels:** `enhancement`, `good-first-issue`
-- **Description:** Go 1.21 introduced `log/slog` as the standard structured logging library. gokue should provide a `SlogLogger` that wraps `*slog.Logger` and implements `logging.Logger`. This lets users who already use slog avoid bringing a second logger.
-- **Acceptance Criteria:**
-  - `SlogLogger` implements `logging.Logger`
-  - All log output from gokue appears via the underlying `slog.Logger`
-  - Level filtering works correctly (slog's built-in level handling)
-  - Works with both `slog.NewJSONHandler` and `slog.NewTextHandler`
 
 ### 5. [`documentation`, `good-first-issue`] Godoc Examples
 

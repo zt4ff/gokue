@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/zt4ff/gokue/internal/logging"
+	"github.com/zt4ff/gokue/internal/logger"
 )
 
 // Memory Type
@@ -102,7 +102,7 @@ type Config struct {
 	RetryPredicates func(error) bool
 	// Logger enables structured logging for the queue. When nil, logging is disabled.
 	// Use gokue.WithLogger to set it.
-	Logger logging.Logger
+	Logger logger.Logger
 }
 
 // ErrInvalidConfig is an error where config for a queue is invalid.
@@ -118,9 +118,10 @@ func Default() Config {
 		JobTimeout:      30 * time.Second,
 		RetryDelay:      250 * time.Millisecond,
 		MaxRetryDelay:   30 * time.Second,
-		ShutdownTimeout: 10 * time.Second,
 		BackoffStrategy: Exponential,
+		ShutdownTimeout: 10 * time.Second,
 		RetryPredicates: nil,
+		Logger:          nil,
 	}
 }
 

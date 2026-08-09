@@ -9,7 +9,7 @@ import (
 
 	"github.com/zt4ff/gokue/config"
 	"github.com/zt4ff/gokue/dispatcher"
-	"github.com/zt4ff/gokue/internal/logging"
+	"github.com/zt4ff/gokue/internal/logger"
 	jobpkg "github.com/zt4ff/gokue/job"
 	"github.com/zt4ff/gokue/stats"
 )
@@ -109,7 +109,7 @@ func WithShutdownTimeout(timeout time.Duration) Option {
 // Call the closer (typically via defer) when the queue is no longer needed.
 // Logging is disabled by default; omit this option to leave it off.
 func WithLogger(w io.Writer) (Option, func() error) {
-	logger, closer := logging.NewLogger(w)
+	logger, closer := logger.NewLogger(w)
 	return func(target *config.Config) {
 		target.Logger = logger
 	}, closer
@@ -125,7 +125,7 @@ func NewQueue(options ...Option) (*Queue, error) {
 // NewQueueWithLogger creates and returns a new Queue with the provided configuration options and logger.
 // It returns an error if the configuration is invalid.
 // If logger is nil, logging is disabled.
-func NewQueueWithLogger(logger logging.Logger, options ...Option) (*Queue, error) {
+func NewQueueWithLogger(logger logger.Logger, options ...Option) (*Queue, error) {
 	queueConfig := config.Default()
 	for _, option := range options {
 		if option != nil {

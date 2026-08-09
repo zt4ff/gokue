@@ -1,101 +1,87 @@
-// Package logging provides structured logging for the gokue job queue.
-package logging
+package logger
 
 import (
 	"fmt"
-	"io"
 	"time"
-
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
-// Level represents the logging level.
-type Level int
+// Event is the identifier of a structured log event emitted by gokue.
+type Event string
 
 const (
-	// LevelDebug represents debug level logs.
-	LevelDebug Level = iota
-	// LevelInfo represents info level logs.
-	LevelInfo
-	// LevelWarn represents warning level logs.
-	LevelWarn
-	// LevelError represents error level logs.
-	LevelError
+	// EventSubmitEnqueued is emitted when a job is accepted into the queue.
+	EventSubmitEnqueued Event = "job_submitted"
+	// EventSubmitRejected is emitted when a job submission is rejected.
+	EventSubmitRejected Event = "job_submission_rejected"
+	// EventJobProcessing is emitted when job execution starts.
+	EventJobProcessing Event = "job_processing_started"
+	// EventJobRetry is emitted when a job is scheduled for retry.
+	EventJobRetry Event = "job_retry"
+	// EventJobCompleted is emitted when a job finishes successfully.
+	EventJobCompleted Event = "job_completed"
+	// EventJobFailed is emitted when a job fails after all retries.
+	EventJobFailed Event = "job_failed"
+	// EventJobAbandoned is emitted when a job is abandoned mid-retry during shutdown.
+	EventJobAbandoned Event = "job_abandoned"
+	// EventJobPanic is emitted when a job panics during execution.
+	EventJobPanic Event = "job_panic"
+	// EventWorkerPanic is emitted when a dispatcher worker panics.
+	EventWorkerPanic Event = "worker_panic"
+	// EventCloseStarted is emitted when the dispatcher starts shutting down.
+	EventCloseStarted Event = "dispatcher_close_started"
+	// EventCloseCompleted is emitted when the dispatcher finishes shutting down.
+	EventCloseCompleted Event = "dispatcher_close_completed"
 )
 
-// Logger is the interface for structured logging in the dispatcher.
-// Implementations should support structured fields for filtering and analysis.
-type Logger interface {
-	// Log records a log message with level and fields.
-	// Fields should be in key-value pairs: key1, value1, key2, value2, ...
-	Log(level Level, message string, fields ...interface{})
+// Field is the key of a structured log field.
+type Field string
 
-	// Debug logs at debug level.
-	Debug(message string, fields ...interface{})
-	// Info logs at info level.
-	Info(message string, fields ...interface{})
-	// Warn logs at warning level.
-	Warn(message string, fields ...interface{})
-	// Error logs at error level.
-	Error(message string, fields ...interface{})
-}
+const (
+	// FieldJobName is the name of the job.
+	FieldJobName Field = "job_name"
+	// FieldAttempt is the 1-based attempt number.
+	FieldAttempt Field = "attempt"
+	// FieldError is the error message.
+	FieldError Field = "error"
+	// FieldDurationMs is the elapsed duration in milliseconds.
+	FieldDurationMs Field = "duration_ms"
+	// FieldRetryDelayMs is the delay before the next retry in milliseconds.
+	FieldRetryDelayMs Field = "retry_delay_ms"
+	// FieldMode is the dispatcher shutdown mode.
+	FieldMode Field = "mode"
+	// FieldStatus is the outcome of an event.
+	FieldStatus Field = "status"
+	// FieldReason is why a submission was rejected or a job abandoned.
+	FieldReason Field = "reason"
+	// FieldPanic is the recovered panic value.
+	FieldPanic Field = "panic"
+)
 
-// zapLogger implements Logger using a zap sugared logger.
-type zapLogger struct {
-	sugar *zap.SugaredLogger
-}
+// Status is the value of a status field.
+type Status string
 
-// Log implements Logger.
-func (l *zapLogger) Log(level Level, message string, fields ...interface{}) {
-	switch level {
-	case LevelDebug:
-		l.sugar.Debugw(message, fields...)
-	case LevelInfo:
-		l.sugar.Infow(message, fields...)
-	case LevelWarn:
-		l.sugar.Warnw(message, fields...)
-	case LevelError:
-		l.sugar.Errorw(message, fields...)
-	}
-}
+const (
+	// StatusEnqueued indicates the job was accepted into the queue.
+	StatusEnqueued Status = "enqueued"
+	// StatusSuccess indicates successful completion.
+	StatusSuccess Status = "success"
+	// StatusFinalFailure indicates failure after all retries.
+	StatusFinalFailure Status = "final_failure"
+)
 
-// Debug implements Logger.
-func (l *zapLogger) Debug(message string, fields ...interface{}) { l.sugar.Debugw(message, fields...) }
+// Reason is the value of a reason field.
+type Reason string
 
-// Info implements Logger.
-func (l *zapLogger) Info(message string, fields ...interface{}) { l.sugar.Infow(message, fields...) }
-
-// Warn implements Logger.
-func (l *zapLogger) Warn(message string, fields ...interface{}) { l.sugar.Warnw(message, fields...) }
-
-// Error implements Logger.
-func (l *zapLogger) Error(message string, fields ...interface{}) { l.sugar.Errorw(message, fields...) }
-
-// NewLogger creates a structured logger that writes to w as JSON using zap,
-// along with a closer that flushes the logger and closes w when it implements
-// io.Closer. Call the closer (typically via defer) to release the write stream.
-// The logger is safe for concurrent use; writes are serialized with a mutex.
-func NewLogger(w io.Writer) (Logger, func() error) {
-	core := zapcore.NewCore(
-		zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()),
-		zapcore.Lock(zapcore.AddSync(w)),
-		zapcore.DebugLevel,
-	)
-	sugar := zap.New(core).Sugar()
-
-	closer := func() error {
-		if err := sugar.Sync(); err != nil {
-			return err
-		}
-		if c, ok := w.(io.Closer); ok {
-			return c.Close()
-		}
-		return nil
-	}
-
-	return &zapLogger{sugar: sugar}, closer
-}
+const (
+	// ReasonDispatcherClosed indicates the dispatcher was already closed.
+	ReasonDispatcherClosed Reason = "dispatcher_closed"
+	// ReasonContextCancelled indicates the submit context was cancelled.
+	ReasonContextCancelled Reason = "context_cancelled"
+	// ReasonQueueFull indicates the queue was at capacity.
+	ReasonQueueFull Reason = "queue_full"
+	// ReasonDispatcherShutdown indicates the job was abandoned during shutdown.
+	ReasonDispatcherShutdown Reason = "dispatcher_shutdown"
+)
 
 // LogSubmitEnqueued logs a successful job submission.
 func LogSubmitEnqueued(logger Logger, jobName string) {
