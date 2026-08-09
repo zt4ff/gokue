@@ -876,6 +876,7 @@ func TestLoggingOnSuccess(t *testing.T) {
 		JobTimeout:      5 * time.Second,
 		RetryDelay:      50 * time.Millisecond,
 		ShutdownTimeout: 5 * time.Second,
+		Logger:          logger,
 	}
 
 	d := dispatcher.NewDispatcher(cfg, nil)
@@ -912,6 +913,7 @@ func TestLoggingOnCloseStart(t *testing.T) {
 		JobTimeout:      5 * time.Second,
 		RetryDelay:      50 * time.Millisecond,
 		ShutdownTimeout: 5 * time.Second,
+		Logger:          logger,
 	}
 
 	d := dispatcher.NewDispatcher(cfg, nil)
@@ -945,6 +947,7 @@ func TestLoggingContainsRequiredFields(t *testing.T) {
 		JobTimeout:      5 * time.Second,
 		RetryDelay:      50 * time.Millisecond,
 		ShutdownTimeout: 5 * time.Second,
+		Logger:          logger,
 	}
 
 	d := dispatcher.NewDispatcher(cfg, nil)
