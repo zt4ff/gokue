@@ -6,13 +6,15 @@ import (
 	"fmt"
 	"runtime"
 	"time"
+
+	"github.com/zt4ff/gokue/internal/logger"
 )
 
 // Memory Type
 const (
 	// InMemory is the configuration to use in-memory backend.
 	InMemory = "in-memory"
-	// MongoDB is the configuration to use Mongo DB backend.
+	// TODO MongoDB is the configuration to use Mongo DB backend.
 	// MongoDB = "mongo-db"
 )
 
@@ -98,6 +100,9 @@ type Config struct {
 	//
 	// If it returns `true`, the dispatcher will attempt to retry the job
 	RetryPredicates func(error) bool
+	// Logger enables structured logging for the queue. When nil, logging is disabled.
+	// Use gokue.WithLogger to set it.
+	Logger logger.Logger
 }
 
 // ErrInvalidConfig is an error where config for a queue is invalid.
@@ -113,9 +118,10 @@ func Default() Config {
 		JobTimeout:      30 * time.Second,
 		RetryDelay:      250 * time.Millisecond,
 		MaxRetryDelay:   30 * time.Second,
-		ShutdownTimeout: 10 * time.Second,
 		BackoffStrategy: Exponential,
+		ShutdownTimeout: 10 * time.Second,
 		RetryPredicates: nil,
+		Logger:          nil,
 	}
 }
 

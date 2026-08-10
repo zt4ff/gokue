@@ -1,14 +1,17 @@
 package gokue
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/zt4ff/gokue/logging"
+	"github.com/zt4ff/gokue/config"
+	logging "github.com/zt4ff/gokue/internal/logger"
 )
 
 // testLogger records log messages for verification.
@@ -117,13 +120,41 @@ func TestRetryDelayOptionOverridesGlobal(t *testing.T) {
 }
 
 func TestWithLoggerOption(t *testing.T) {
-	logger := &testLogger{}
-	var target logging.Logger = &logging.NoOpLogger{}
+	var buf bytes.Buffer
+	opt, closer := WithLogger(&buf)
+	defer closer()
 
-	WithLogger(logger)(&target)
+	if opt == nil {
+		t.Fatal("expected a non-nil option")
+	}
 
-	if _, ok := target.(*testLogger); !ok {
-		t.Errorf("expected WithLogger to set the provided logger, got %T", target)
+	cfg := config.Default()
+	opt(&cfg)
+	if cfg.Logger == nil {
+		t.Error("expected WithLogger to set a logger on the config")
+	}
+}
+
+func TestWithLoggerEnablesLogging(t *testing.T) {
+	var buf bytes.Buffer
+	opt, closer := WithLogger(&buf)
+	defer closer()
+
+	queue, err := NewQueue(opt, WithWorkerCount(1))
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	job := &successJob{processed: &atomic.Bool{}}
+	if err := queue.Submit(context.Background(), job); err != nil {
+		t.Fatalf("submit failed: %v", err)
+	}
+	if err := queue.Close(context.Background()); err != nil {
+		t.Fatalf("close failed: %v", err)
+	}
+
+	if !strings.Contains(buf.String(), string(logging.EventSubmitEnqueued)) {
+		t.Errorf("expected submit event in log output, got %q", buf.String())
 	}
 }
 

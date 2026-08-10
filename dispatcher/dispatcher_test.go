@@ -10,7 +10,7 @@ import (
 
 	"github.com/zt4ff/gokue/config"
 	"github.com/zt4ff/gokue/dispatcher"
-	"github.com/zt4ff/gokue/logging"
+	logging "github.com/zt4ff/gokue/internal/logger"
 )
 
 func setup(t *testing.T) *dispatcher.Dispatcher {
@@ -27,7 +27,7 @@ func setup(t *testing.T) *dispatcher.Dispatcher {
 		ShutdownTimeout: 5 * time.Second,
 	}
 
-	d := dispatcher.New(config, nil)
+	d := dispatcher.NewDispatcher(config, nil)
 
 	return d
 }
@@ -117,7 +117,7 @@ func TestTrySubmitQueueFull(t *testing.T) {
 		ShutdownTimeout: 5 * time.Second,
 	}
 
-	d := dispatcher.New(config, nil)
+	d := dispatcher.NewDispatcher(config, nil)
 	defer d.Close(context.Background())
 
 	ctx := context.Background()
@@ -295,7 +295,7 @@ func TestCloseDrainWaitsForLongRunningJob(t *testing.T) {
 		ShutdownTimeout: 5 * time.Second,
 	}
 
-	d := dispatcher.New(cfg, nil)
+	d := dispatcher.NewDispatcher(cfg, nil)
 
 	// Track job completion
 	jobCompletedAt := &atomic.Pointer[time.Time]{}
@@ -347,7 +347,7 @@ func TestCloseContextTimeoutReturnsError(t *testing.T) {
 		ShutdownTimeout: 5 * time.Second,
 	}
 
-	d := dispatcher.New(cfg, nil)
+	d := dispatcher.NewDispatcher(cfg, nil)
 
 	// Create a job that never completes
 	hangingJob := &testJob{
@@ -403,7 +403,7 @@ func TestCloseImmediateModeReturnsQuickly(t *testing.T) {
 		ShutdownTimeout: 5 * time.Second,
 	}
 
-	d := dispatcher.New(cfg, nil)
+	d := dispatcher.NewDispatcher(cfg, nil)
 
 	// Submit a slow job
 	err := d.Submit(context.Background(), dispatcher.Task{
@@ -482,7 +482,7 @@ func TestCloseDrainProcessesQueuedJobs(t *testing.T) {
 		ShutdownTimeout: 5 * time.Second,
 	}
 
-	d := dispatcher.New(cfg, nil)
+	d := dispatcher.NewDispatcher(cfg, nil)
 
 	// Submit multiple jobs quickly
 	numJobs := 10
@@ -526,7 +526,7 @@ func TestCloseStopsAcceptingNewSubmissions(t *testing.T) {
 		ShutdownTimeout: 5 * time.Second,
 	}
 
-	d := dispatcher.New(cfg, nil)
+	d := dispatcher.NewDispatcher(cfg, nil)
 
 	// Submit a slow job to keep worker busy
 	err := d.Submit(context.Background(), dispatcher.Task{
@@ -573,7 +573,7 @@ func TestRetryAbandonedOnQuit(t *testing.T) {
 		ShutdownTimeout: 5 * time.Second,
 	}
 
-	d := dispatcher.New(cfg, nil)
+	d := dispatcher.NewDispatcher(cfg, nil)
 
 	// Submit a job that fails once then succeeds
 	attempts := &atomic.Int32{}
@@ -645,7 +645,7 @@ func TestDrainModeWithQuitChannel(t *testing.T) {
 		ShutdownTimeout: 5 * time.Second,
 	}
 
-	d := dispatcher.New(cfg, nil)
+	d := dispatcher.NewDispatcher(cfg, nil)
 
 	// Create a job that succeeds on 2nd attempt
 	callCount := &atomic.Int32{}
@@ -747,6 +747,8 @@ func (rl *recordingLogger) findLog(event logging.Event) *logRecord {
 
 // TestLoggingOnJobSubmit verifies logging occurs on job submission.
 func TestLoggingOnJobSubmit(t *testing.T) {
+	logger := &recordingLogger{}
+
 	cfg := config.Config{
 		Backend:         config.InMemory,
 		BackoffStrategy: config.Exponential,
@@ -756,10 +758,10 @@ func TestLoggingOnJobSubmit(t *testing.T) {
 		JobTimeout:      5 * time.Second,
 		RetryDelay:      50 * time.Millisecond,
 		ShutdownTimeout: 5 * time.Second,
+		Logger:          logger,
 	}
 
-	logger := &recordingLogger{}
-	d := dispatcher.NewWithLogger(cfg, nil, logger)
+	d := dispatcher.NewDispatcher(cfg, nil)
 	defer d.Close(context.Background())
 
 	// Submit a job
@@ -783,6 +785,8 @@ func TestLoggingOnJobSubmit(t *testing.T) {
 
 // TestLoggingOnJobRejection verifies logging occurs when job submission is rejected.
 func TestLoggingOnJobRejection(t *testing.T) {
+	logger := &recordingLogger{}
+
 	cfg := config.Config{
 		Backend:         config.InMemory,
 		BackoffStrategy: config.Exponential,
@@ -792,10 +796,10 @@ func TestLoggingOnJobRejection(t *testing.T) {
 		JobTimeout:      5 * time.Second,
 		RetryDelay:      50 * time.Millisecond,
 		ShutdownTimeout: 5 * time.Second,
+		Logger:          logger,
 	}
 
-	logger := &recordingLogger{}
-	d := dispatcher.NewWithLogger(cfg, nil, logger)
+	d := dispatcher.NewDispatcher(cfg, nil)
 
 	// Close dispatcher
 	d.Close(context.Background())
@@ -815,6 +819,8 @@ func TestLoggingOnJobRejection(t *testing.T) {
 
 // TestLoggingOnRetry verifies logging occurs during retry attempts.
 func TestLoggingOnRetry(t *testing.T) {
+	logger := &recordingLogger{}
+
 	cfg := config.Config{
 		Backend:         config.InMemory,
 		BackoffStrategy: config.Exponential,
@@ -824,10 +830,10 @@ func TestLoggingOnRetry(t *testing.T) {
 		JobTimeout:      5 * time.Second,
 		RetryDelay:      50 * time.Millisecond,
 		ShutdownTimeout: 5 * time.Second,
+		Logger:          logger,
 	}
 
-	logger := &recordingLogger{}
-	d := dispatcher.NewWithLogger(cfg, nil, logger)
+	d := dispatcher.NewDispatcher(cfg, nil)
 	defer d.Close(context.Background())
 
 	// Submit a job that fails
@@ -859,6 +865,8 @@ func TestLoggingOnRetry(t *testing.T) {
 
 // TestLoggingOnSuccess verifies logging occurs on job success.
 func TestLoggingOnSuccess(t *testing.T) {
+	logger := &recordingLogger{}
+
 	cfg := config.Config{
 		Backend:         config.InMemory,
 		BackoffStrategy: config.Exponential,
@@ -868,10 +876,10 @@ func TestLoggingOnSuccess(t *testing.T) {
 		JobTimeout:      5 * time.Second,
 		RetryDelay:      50 * time.Millisecond,
 		ShutdownTimeout: 5 * time.Second,
+		Logger:          logger,
 	}
 
-	logger := &recordingLogger{}
-	d := dispatcher.NewWithLogger(cfg, nil, logger)
+	d := dispatcher.NewDispatcher(cfg, nil)
 	defer d.Close(context.Background())
 
 	task := dispatcher.Task{
@@ -894,6 +902,8 @@ func TestLoggingOnSuccess(t *testing.T) {
 
 // TestLoggingOnCloseStart verifies logging occurs at close start.
 func TestLoggingOnCloseStart(t *testing.T) {
+	logger := &recordingLogger{}
+
 	cfg := config.Config{
 		Backend:         config.InMemory,
 		BackoffStrategy: config.Exponential,
@@ -903,10 +913,10 @@ func TestLoggingOnCloseStart(t *testing.T) {
 		JobTimeout:      5 * time.Second,
 		RetryDelay:      50 * time.Millisecond,
 		ShutdownTimeout: 5 * time.Second,
+		Logger:          logger,
 	}
 
-	logger := &recordingLogger{}
-	d := dispatcher.NewWithLogger(cfg, nil, logger)
+	d := dispatcher.NewDispatcher(cfg, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -926,6 +936,8 @@ func TestLoggingOnCloseStart(t *testing.T) {
 
 // TestLoggingContainsRequiredFields verifies log records contain required fields.
 func TestLoggingContainsRequiredFields(t *testing.T) {
+	logger := &recordingLogger{}
+
 	cfg := config.Config{
 		Backend:         config.InMemory,
 		BackoffStrategy: config.Exponential,
@@ -935,10 +947,10 @@ func TestLoggingContainsRequiredFields(t *testing.T) {
 		JobTimeout:      5 * time.Second,
 		RetryDelay:      50 * time.Millisecond,
 		ShutdownTimeout: 5 * time.Second,
+		Logger:          logger,
 	}
 
-	logger := &recordingLogger{}
-	d := dispatcher.NewWithLogger(cfg, nil, logger)
+	d := dispatcher.NewDispatcher(cfg, nil)
 	defer d.Close(context.Background())
 
 	task := dispatcher.Task{
@@ -968,7 +980,7 @@ func TestLoggingContainsRequiredFields(t *testing.T) {
 	}
 }
 
-// TestLoggingWithNilLogger verifies dispatcher works with nil logger (NoOpLogger).
+// TestLoggingWithNilLogger verifies dispatcher works with nil logger (logging disabled).
 func TestLoggingWithNilLogger(t *testing.T) {
 	cfg := config.Config{
 		Backend:         config.InMemory,
@@ -981,8 +993,8 @@ func TestLoggingWithNilLogger(t *testing.T) {
 		ShutdownTimeout: 5 * time.Second,
 	}
 
-	// Create dispatcher without logger (should use NoOpLogger)
-	d := dispatcher.New(cfg, nil)
+	// Create dispatcher without logger (logging disabled)
+	d := dispatcher.NewDispatcher(cfg, nil)
 	defer d.Close(context.Background())
 
 	// Should work without panicking
@@ -1020,6 +1032,7 @@ func (j *blockingJob) Process(ctx context.Context) error {
 // TestRetryPredicateAllowsAllRetries verifies that a retry predicate returning
 // true lets the job retry without the normal retry delay or retry counter.
 func TestRetryPredicateAllowsAllRetries(t *testing.T) {
+	logger := &recordingLogger{}
 	cfg := config.Config{
 		Backend:         config.InMemory,
 		BackoffStrategy: config.Exponential,
@@ -1030,9 +1043,10 @@ func TestRetryPredicateAllowsAllRetries(t *testing.T) {
 		RetryDelay:      0,
 		ShutdownTimeout: 5 * time.Second,
 		RetryPredicates: func(error) bool { return true },
+		Logger:          logger,
 	}
 
-	d := dispatcher.NewWithLogger(cfg, nil, &recordingLogger{})
+	d := dispatcher.NewDispatcher(cfg, nil)
 	defer d.Close(context.Background())
 
 	attempts := &atomic.Int32{}
@@ -1065,6 +1079,7 @@ func TestRetryPredicateAllowsAllRetries(t *testing.T) {
 // TestRetryPredicateBlocksRetry verifies that a retry predicate returning false
 // stops retrying immediately and records a retry-predicate failure.
 func TestRetryPredicateBlocksRetry(t *testing.T) {
+	logger := &recordingLogger{}
 	cfg := config.Config{
 		Backend:         config.InMemory,
 		BackoffStrategy: config.Exponential,
@@ -1075,9 +1090,10 @@ func TestRetryPredicateBlocksRetry(t *testing.T) {
 		RetryDelay:      0,
 		ShutdownTimeout: 5 * time.Second,
 		RetryPredicates: func(error) bool { return false },
+		Logger:          logger,
 	}
 
-	d := dispatcher.NewWithLogger(cfg, nil, &recordingLogger{})
+	d := dispatcher.NewDispatcher(cfg, nil)
 	defer d.Close(context.Background())
 
 	attempts := &atomic.Int32{}
@@ -1120,9 +1136,10 @@ func TestRetryPredicateTaskOverride(t *testing.T) {
 		RetryDelay:      0,
 		ShutdownTimeout: 5 * time.Second,
 		RetryPredicates: func(error) bool { return false },
+		Logger:          &recordingLogger{},
 	}
 
-	d := dispatcher.NewWithLogger(cfg, nil, &recordingLogger{})
+	d := dispatcher.NewDispatcher(cfg, nil)
 	defer d.Close(context.Background())
 
 	attempts := &atomic.Int32{}
@@ -1159,9 +1176,10 @@ func TestTaskMaxRetriesOverride(t *testing.T) {
 		JobTimeout:      5 * time.Second,
 		RetryDelay:      10 * time.Millisecond,
 		ShutdownTimeout: 5 * time.Second,
+		Logger:          &recordingLogger{},
 	}
 
-	d := dispatcher.NewWithLogger(cfg, nil, &recordingLogger{})
+	d := dispatcher.NewDispatcher(cfg, nil)
 	defer d.Close(context.Background())
 
 	attempts := &atomic.Int32{}
@@ -1194,9 +1212,10 @@ func TestTaskRetryDelayOverride(t *testing.T) {
 		JobTimeout:      5 * time.Second,
 		RetryDelay:      30 * time.Second,
 		ShutdownTimeout: 5 * time.Second,
+		Logger:          &recordingLogger{},
 	}
 
-	d := dispatcher.NewWithLogger(cfg, nil, &recordingLogger{})
+	d := dispatcher.NewDispatcher(cfg, nil)
 	defer d.Close(context.Background())
 
 	attempts := &atomic.Int32{}
@@ -1229,6 +1248,7 @@ func TestTaskRetryDelayOverride(t *testing.T) {
 // TestSubmitDerivesNameFromJob verifies that an empty task name is derived from
 // the job's type.
 func TestSubmitDerivesNameFromJob(t *testing.T) {
+	logger := &recordingLogger{}
 	cfg := config.Config{
 		Backend:         config.InMemory,
 		BackoffStrategy: config.Exponential,
@@ -1238,10 +1258,10 @@ func TestSubmitDerivesNameFromJob(t *testing.T) {
 		JobTimeout:      5 * time.Second,
 		RetryDelay:      0,
 		ShutdownTimeout: 5 * time.Second,
+		Logger:          logger,
 	}
 
-	logger := &recordingLogger{}
-	d := dispatcher.NewWithLogger(cfg, nil, logger)
+	d := dispatcher.NewDispatcher(cfg, nil)
 	defer d.Close(context.Background())
 
 	task := dispatcher.Task{Job: &successJob{}}
@@ -1275,9 +1295,10 @@ func TestSubmitContextCancelled(t *testing.T) {
 		JobTimeout:      5 * time.Second,
 		RetryDelay:      0,
 		ShutdownTimeout: 5 * time.Second,
+		Logger:          &recordingLogger{},
 	}
 
-	d := dispatcher.NewWithLogger(cfg, nil, &recordingLogger{})
+	d := dispatcher.NewDispatcher(cfg, nil)
 	block := make(chan struct{})
 	defer d.Close(context.Background())
 	defer close(block)
@@ -1352,9 +1373,10 @@ func TestTrySubmitEnqueues(t *testing.T) {
 		JobTimeout:      5 * time.Second,
 		RetryDelay:      0,
 		ShutdownTimeout: 5 * time.Second,
+		Logger:          &recordingLogger{},
 	}
 
-	d := dispatcher.NewWithLogger(cfg, nil, &recordingLogger{})
+	d := dispatcher.NewDispatcher(cfg, nil)
 	defer d.Close(context.Background())
 
 	task := dispatcher.Task{Job: &successJob{}}
@@ -1417,6 +1439,8 @@ func (l *panicOnEventLogger) count() int {
 // TestWorkerRecoversFromInternalPanic verifies that a panic in dispatcher
 // internals (not the job) is recovered and logged without crashing the process.
 func TestWorkerRecoversFromInternalPanic(t *testing.T) {
+	logger := &panicOnEventLogger{panicOn: string(logging.EventJobFailed)}
+
 	cfg := config.Config{
 		Backend:         config.InMemory,
 		BackoffStrategy: config.Exponential,
@@ -1426,10 +1450,10 @@ func TestWorkerRecoversFromInternalPanic(t *testing.T) {
 		JobTimeout:      5 * time.Second,
 		RetryDelay:      0,
 		ShutdownTimeout: 5 * time.Second,
+		Logger:          logger,
 	}
 
-	logger := &panicOnEventLogger{panicOn: string(logging.EventJobFailed)}
-	d := dispatcher.NewWithLogger(cfg, nil, logger)
+	d := dispatcher.NewDispatcher(cfg, nil)
 	defer d.Close(context.Background())
 
 	task := dispatcher.Task{
