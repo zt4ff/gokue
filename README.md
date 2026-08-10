@@ -5,12 +5,7 @@
 
 `gokue` is a bounded, **in-memory** job queue for Go. It processes jobs with a
 configurable worker pool and ships with per-job timeouts, retries with pluggable
-backoff, panic recovery, and atomic runtime statistics — all with a small,
-option-driven API.
-
-The queue lives entirely in process memory: queued and in-flight jobs are lost
-on process exit, and nothing survives a restart. Use it for work that is safe
-to re-run or re-enqueue on startup.
+backoff, panic recovery, and atomic runtime statistics.
 
 ## Features
 
@@ -26,7 +21,6 @@ to re-run or re-enqueue on startup.
 
 ## Installation
 
-Requires Go 1.22 or later.
 
 ```sh
 go get github.com/zt4ff/gokue

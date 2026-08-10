@@ -1,17 +1,3 @@
-PHASE 1:
-
-Retry predicates
-
-Per-job-type stat breakdown
-
-Structured log fields
-
-slog adapter
-
-godoc examples
-
-Semver releases + CHANGELOG
-
 PHASE 2:
 
 Backend abstraction interface

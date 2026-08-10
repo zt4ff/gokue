@@ -1,52 +1,5 @@
 # gokue — Development Plan & Issues
 
-This document maps each item from `todo.txt` to GitHub issues. Labels appear in brackets before each issue title.
-
-## Phase 1
-
-### 1. [`enhancement`] Retry Predicates DONE
-
-- **Issue Title:** Add retry predicates for conditional retry logic
-- **Labels:** `enhancement`
-- **Description:** Currently, gokue retries all failed jobs up to `MaxRetries`. A retry predicate would let users define a function that inspects the error returned by `job.Process(ctx)` and decides whether to retry. For example, "do not retry on `ErrValidation`" or "only retry on network errors". This is a common pattern in production job queues.
-- **Acceptance Criteria:**
-  - Users can set a global retry predicate and/or per-submit predicate
-  - When predicate returns `false`, the job is marked failed immediately
-  - When predicate returns `true`, normal retry logic applies
-  - nil predicate means "always retry" (current behavior)
-  - All existing tests continue to pass
-
-### 2. [`enhancement`] Per-Job-Type Stat Breakdown SKIPPED/NEEDS-RESEARCH
-
-- **Issue Title:** Add per-job-type statistics breakdown
-- **Labels:** `enhancement`
-- **Description:** `stats.Snapshot` currently returns aggregate counters (enqueued, processed, failed, retried, dropped). Users need per-job-name visibility to see which job types are failing most, which are slowest, etc. This would break down stats by job name, optionaly with latency information.
-- **Acceptance Criteria:**
-  - `Queue.Stats()` still returns aggregate totals (backward compat)
-  - New method returns per-job-name breakdown
-  - Counters correctly accumulate per job type
-  - Thread-safe under concurrent submit/execute
-
-
-### 5. [`documentation`, `good-first-issue`] Godoc Examples
-
-- **Issue Title:** Add runnable Godoc examples
-- **Labels:** `documentation`, `good-first-issue`
-- **Description:** Go's documentation convention uses `Example` functions that are compiled, run, and displayed on `pkg.go.dev`. Adding these makes the library more approachable and demonstrates common usage patterns.
-- **Acceptance Criteria:**
-  - `go test -run Example ./...` passes
-  - Examples are clear, concise, and demonstrate real use cases
-  - Output comments (`// Output:`) match actual program output
-
-### 6. [`documentation`, `ops`, `good-first-issue`] Semver Releases + CHANGELOG
-
-- **Issue Title:** Set up semantic versioning and CHANGELOG
-- **Labels:** `documentation`, `ops`, `good-first-issue`
-- **Description:** The project needs a versioning scheme and release process. The current state represents a solid MVP, making it a good time for `v0.1.0`. A `CHANGELOG.md` following Keep a Changelog convention helps users track changes between versions.
-- **Acceptance Criteria:**
-  - `v0.1.0` tagged and released on GitHub
-  - CHANGELOG covers existing features
-  - Future PRs add changelog entries
 
 ## Phase 2
 
