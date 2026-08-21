@@ -6,8 +6,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/zt4ff/gokue/config"
 )
 
 // successJob is a job that always completes successfully
@@ -77,18 +75,7 @@ func TestNewQueueInvalidConfigs(t *testing.T) {
 		config func(any) Option
 		arg    any
 	}{
-		"with invalid backend option": {
-			config: func(a any) Option { return WithConfig(a.(config.Config)) },
-			arg: config.Config{
-				Backend: "wrong backend",
-			},
-		},
-		"with invalid backoff strategy": {
-			config: func(a any) Option { return WithConfig(a.(config.Config)) },
-			arg: config.Config{
-				BackoffStrategy: "quadratic",
-			},
-		},
+
 		"with worker count": {
 			config: func(a any) Option { return WithWorkerCount(a.(int)) },
 			arg:    -2,

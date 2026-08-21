@@ -47,10 +47,10 @@ type Queue struct {
 	collector *stats.Collector
 }
 
-// WithConfig returns an Option that sets the entire configuration.
-func WithConfig(cfg config.Config) Option {
+// WithMongoDB returns an Option that sets the Backend type to Mongo DB.
+func WithMongoDB(cfg config.Config) Option {
 	return func(target *config.Config) {
-		*target = cfg
+		target.Backend = config.MongoDB
 	}
 }
 
@@ -113,6 +113,70 @@ func WithLogger(w io.Writer) (Option, func() error) {
 	return func(target *config.Config) {
 		target.Logger = logger
 	}, closer
+}
+
+// WithBackoffStrategy defines the backoff strategy to employ when failure happens. The strategies includes:
+//
+// Constant is default. It is the backoff strategy that retries after a fixed delay.
+//
+// Formula:
+//
+//	delay = B
+//
+// Example:
+//
+//	B = 2s
+//	retries = 2s, 2s, 2s, 2s...
+//
+// B = base retry delay.
+// Linear is the backoff strategy that increases the retry delay
+// by a fixed amount on every retry.
+//
+// Formula:
+//
+//	delay = B * N
+//
+// Example:
+//
+//	B = 2s
+//	retries = 2s, 4s, 6s, 8s...
+//
+// B = base retry delay.
+// N = retry attempt number starting from 1.
+//
+// Exponential is the backoff strategy that doubles the retry delay
+// on every retry attempt.
+//
+// Formula:
+//
+//	delay = B * 2^(N-1)
+//
+// Example:
+//
+//	B = 2s
+//	retries = 2s, 4s, 8s, 16s...
+//
+// B = base retry delay.
+// N = retry attempt number starting from 1.
+//
+// ExponentialJitter is the exponential backoff strategy with
+// randomness added to reduce synchronized retries and retry storms.
+//
+// Formula:
+//
+//	delay = random(0, B * 2^(N-1))
+//
+// Example:
+//
+//	B = 2s
+//	retries ≈ 1.2s, 3.8s, 5.1s, 14.7s...
+//
+// B = base retry delay.
+// N = retry attempt number starting from 1.
+func WithBackoffStrategy(stragegy string) Option {
+	return func(target *config.Config) {
+		target.BackoffStrategy = stragegy
+	}
 }
 
 // NewQueue creates and returns a new Queue with the provided configuration options.

@@ -54,7 +54,7 @@ func (l *testLogger) has(message string) bool {
 }
 
 func TestMaxRetriesOptionDisablesRetries(t *testing.T) {
-	queue, err := NewQueue()
+	queue, err := NewQueue(WithBackoffStrategy(config.Constant))
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}

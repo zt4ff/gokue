@@ -137,17 +137,14 @@ Logging is disabled by default; pass `WithLogger` to enable it.
 | `WithRetryDelay(d)` | `250ms` | Base delay between retries. |
 | `WithMaxRetryDelay(d)` | `30s` | Ceiling for exponential/jittered backoff. `<= 0` means no cap. |
 | `WithShutdownTimeout(d)` | `10s` | Validated but not yet applied; `Close` is bounded by the context you pass it. |
-| `WithConfig(cfg)` | — | Replace the entire configuration with a `config.Config` value. |
 | `WithLogger(w)` | disabled | Enable structured JSON logging to `w` (see [Logging](#logging)). |
 
-Options are applied in the order you pass them: `WithConfig(cfg)` replaces the
-whole config, so options placed *after* it override individual fields, while
-options placed *before* it are discarded.
+Options are applied in the order you pass them.
 
 ### Backoff strategies
 
 Retry delays are calculated from the base `RetryDelay` using the configured
-strategy. Choose one via `config.Config.BackoffStrategy` (using `WithConfig`).
+strategy. Choose one via `gokue.WithBackoffStrategy`.
 
 | Strategy | Delay formula | Example (B = 2s) |
 | --- | --- | --- |
@@ -176,7 +173,13 @@ cfg.RetryPredicates = func(err error) bool {
 	return !errors.Is(err, errPermanent)
 }
 
-q, err := gokue.NewQueue(gokue.WithConfig(cfg))
+q, err := gokue.NewQueue(
+	gokue.WithBackOffStrategy(config.InMemory)
+	gokue.WithWorkerCount(1),
+	gokue.WithQueueSize(64),
+	gokue.WithMaxRetries(2),
+	gokue.WithJobTimeout(5*time.Second),
+)
 ```
 
 When the predicate returns `false`, the job fails immediately and the
