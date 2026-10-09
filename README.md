@@ -9,15 +9,15 @@ backoff, panic recovery, and atomic runtime statistics.
 
 ## Features
 
-- **Bounded queue with backpressure** — submissions block when the queue is full.
-- **Worker pool** — concurrent workers sized by configuration.
-- **Retries with backoff** — constant, linear, exponential, or jittered delays.
-- **Conditional retries** — retry predicates decide which errors are worth retrying.
-- **Per-job timeouts** — each attempt gets a cancellable context.
-- **Per-job overrides** — max retries and retry delay can be set per submission.
-- **Panic recovery** — a panicking job is treated as a failure, not a crash.
-- **Atomic runtime stats** — lock-free counters for enqueued, processed, failed, retried, and dropped.
-- **Structured logging** — JSON logs via zap (opt-in).
+- **Bounded queue with backpressure** - submissions block when the queue is full.
+- **Worker pool** - concurrent workers sized by configuration.
+- **Retries with backoff** - constant, linear, exponential, or jittered delays.
+- **Conditional retries** - retry predicates decide which errors are worth retrying.
+- **Per-job timeouts** - each attempt gets a cancellable context.
+- **Per-job overrides** - max retries and retry delay can be set per submission.
+- **Panic recovery** - a panicking job is treated as a failure, not a crash.
+- **Atomic runtime stats** - lock-free counters for enqueued, processed, failed, retried, and dropped.
+- **Structured logging** - JSON logs via zap (opt-in).
 
 ## Installation
 
@@ -160,7 +160,7 @@ strategies are capped by `MaxRetryDelay`; `constant` and `linear` use
 ### Retry predicates
 
 By default, gokue retries any error. A retry predicate lets you decide *which*
-errors deserve a retry — for example, never retry validation errors:
+errors deserve a retry - for example, never retry validation errors:
 
 ```go
 import "github.com/zt4ff/gokue/config"
@@ -282,7 +282,7 @@ drain in-flight and queued jobs:
 - New submissions are rejected with `dispatcher.ErrClosed`.
 - Retry sleeps are interrupted so shutdown isn't blocked by backoff delays.
 - Returns `nil` when all workers finish before `ctx` is cancelled.
-- Returns `ctx.Err()` if the context expires first — workers continue running in
+- Returns `ctx.Err()` if the context expires first - workers continue running in
   the background, so don't tear down shared resources immediately after.
 
 Use a timeout context for bounded shutdown in production:
