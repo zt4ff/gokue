@@ -17,7 +17,6 @@ backoff, panic recovery, and atomic runtime statistics.
 - **Per-job overrides** - max retries and retry delay can be set per submission.
 - **Panic recovery** - a panicking job is treated as a failure, not a crash.
 - **Atomic runtime stats** - lock-free counters for enqueued, processed, failed, retried, and dropped.
-- **Structured logging** - JSON logs via zap (opt-in).
 
 ## Installation
 
@@ -50,8 +49,10 @@ func (j EmailJob) Process(ctx context.Context) error {
 	// Check for cancellation/timeout before doing work.
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		// Do something with the cancellation
+		return
 	default:
+		// Perform action
 	}
 	fmt.Printf("sending email to %s\n", j.To)
 	return nil
@@ -61,7 +62,7 @@ func main() {
 	// Create a queue with 4 workers and retries.
 	q, err := gokue.NewQueue(
 		gokue.WithWorkerCount(4),
-		gokue.WithQueueSize(1024),
+		gokue.WithQueueSize(24),
 		gokue.WithMaxRetries(3),
 		gokue.WithJobTimeout(30*time.Second),
 		gokue.WithRetryDelay(250*time.Millisecond),
@@ -70,7 +71,6 @@ func main() {
 		panic(err)
 	}
 
-	// Submit a job. The job's name is derived from its type (EmailJob).
 	// This blocks until the job is enqueued or ctx is done.
 	err = q.Submit(context.Background(), EmailJob{
 		To:   "user@example.com",
