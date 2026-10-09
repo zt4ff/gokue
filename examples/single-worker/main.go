@@ -12,15 +12,16 @@ import (
 // Email represents an email job to be processed.
 type Email struct {
 	// email is the recipient email address.
-	email string
+	address string
 	// message is the email body to send.
 	message string
 }
 
 // Process implements the gokue.Job interface and sends an email.
 func (e Email) Process(context.Context) error {
-	time.Sleep(2 * time.Second)
-	fmt.Printf("Sending %s to %s\n", e.message, e.email)
+	// Simulate email service
+	time.Sleep(5 * time.Second)
+	fmt.Printf("Sending %s to %s\n", e.message, e.address)
 	return nil
 }
 
@@ -30,20 +31,24 @@ func main() {
 		gokue.WithWorkerCount(1),
 		gokue.WithQueueSize(64),
 		gokue.WithMaxRetries(2),
-		gokue.WithJobTimeout(5*time.Second),
+		gokue.WithJobTimeout(2*time.Second),
 	)
 	if err != nil {
+		// Handle error
 		panic(err)
 	}
+
+	ctx := context.Background()
+
 	defer func() {
-		if err := q.Close(context.Background()); err != nil {
+		if err := q.Close(ctx); err != nil {
 			panic(err)
 		}
 	}()
 
-	user := Email{email: "johndoe@gmail.com", message: "This is testing the email"}
+	job := Email{address: "johndoe@gmail.com", message: "This is testing the email"}
 
-	if err := q.Submit(context.Background(), user); err != nil {
+	if err := q.Submit(ctx, job); err != nil {
 		panic(err)
 	}
 }
