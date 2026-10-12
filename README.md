@@ -276,10 +276,13 @@ Call `Close(ctx)` to stop accepting new submissions and wait for workers to
 drain in-flight and queued jobs:
 
 - New submissions are rejected with `dispatcher.ErrClosed`.
-- Retry sleeps are interrupted so shutdown isn't blocked by backoff delays.
+- Drain mode lets in-flight jobs and their retries finish, including backoff
+  delays, so the queue truly drains.
 - Returns `nil` when all workers finish before `ctx` is cancelled.
-- Returns `ctx.Err()` if the context expires first - workers continue running in
-  the background, so don't tear down shared resources immediately after.
+- Returns `ctx.Err()` if the context expires first - in-progress retry sleeps are
+  interrupted so workers can exit, but they may still be running in the
+  background, so don't tear down shared resources immediately after.
+- Immediate mode returns right away and interrupts retry sleeps immediately.
 
 Use a timeout context for bounded shutdown in production:
 

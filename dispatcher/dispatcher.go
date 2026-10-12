@@ -84,6 +84,8 @@ type Dispatcher struct {
 	tasks chan Task
 	// quit is closed when the dispatcher shuts down, interrupting in-progress retry sleeps.
 	quit chan struct{}
+	// quitOnce ensures quit is closed exactly once across multiple Close calls and modes.
+	quitOnce sync.Once
 
 	// submitMu protects the closed flag.
 	submitMu sync.RWMutex
@@ -91,6 +93,14 @@ type Dispatcher struct {
 	closed bool
 	// wg tracks all active worker goroutines.
 	wg sync.WaitGroup
+}
+
+// signalQuit closes the quit channel exactly once, interrupting any in-progress
+// retry sleeps so workers can abandon remaining retries and exit promptly.
+func (d *Dispatcher) signalQuit() {
+	d.quitOnce.Do(func() {
+		close(d.quit)
+	})
 }
 
 // New creates a new Dispatcher with the given configuration and optional statistics collector.
@@ -197,11 +207,13 @@ func (d *Dispatcher) TrySubmit(ctx context.Context, task Task) error {
 //
 // Behavior (Drain Mode):
 //   - Immediately rejects new submissions with ErrClosed.
-//   - Signals workers via quit channel to abandon retry delays.
 //   - Closes the tasks channel to indicate no more work will arrive.
-//   - Blocks waiting for all workers to finish draining the task queue.
+//   - Blocks waiting for all workers to finish draining the task queue,
+//     including any in-flight retries and their backoff delays.
 //   - Returns nil if all workers complete before context cancellation.
-//   - Returns ctx.Err() if context is cancelled during the wait.
+//   - Returns ctx.Err() if context is cancelled during the wait. On cancellation
+//     the quit channel is closed so workers abandon remaining retry sleeps and
+//     can exit promptly; workers may still be running when Close returns.
 //
 // Important: If ctx is cancelled before workers finish, Close returns ctx.Err()
 // but workers continue running in the background until they complete. Callers
@@ -217,14 +229,16 @@ func (d *Dispatcher) Close(ctx context.Context) error {
 // CloseWithMode gracefully or immediately shuts down the dispatcher based on the mode.
 //
 // Modes:
-//   - DrainMode: Waits for all in-flight and queued jobs to complete (recommended).
-//     Returns ctx.Err() if the wait times out.
+//   - DrainMode: Waits for all in-flight and queued jobs to complete, including
+//     retries and their backoff delays. Returns ctx.Err() if the wait times out.
+//     If the context is cancelled, retry sleeps are interrupted so workers can
+//     abandon remaining retries and exit.
 //   - ImmediateMode: Returns immediately without waiting for workers to complete.
-//     Workers continue processing background tasks.
+//     Retry sleeps are interrupted so workers finish their current attempt and
+//     stop instead of continuing to retry.
 //
 // Behavior (both modes):
 //   - Rejects new submissions with ErrClosed.
-//   - Signals workers via quit channel to abandon retry delays.
 //   - Closes the tasks channel.
 //
 // Drain Mode specifics:
@@ -262,19 +276,20 @@ func (d *Dispatcher) CloseWithMode(ctx context.Context, mode string) error {
 	d.submitMu.Lock()
 	if !d.closed {
 		d.closed = true
-		close(d.quit)  // signal workers to stop sleeping between retries
 		close(d.tasks) // stop accepting new tasks; workers drain the rest
 	}
 	d.submitMu.Unlock()
 
-	// For immediate mode, return without waiting
+	// For immediate mode, signal workers to abandon retries and return without waiting.
 	if mode == ImmediateMode {
+		d.signalQuit()
 		duration := time.Since(startTime)
 		logger.LogCloseComplete(d.logger, mode, duration, nil)
 		return nil
 	}
 
-	// For drain mode, wait for all workers to finish
+	// For drain mode, wait for all workers to finish. Retries and their backoff
+	// delays are allowed to complete so the queue truly drains.
 	done := make(chan struct{})
 	go func() {
 		d.wg.Wait()
@@ -287,6 +302,9 @@ func (d *Dispatcher) CloseWithMode(ctx context.Context, mode string) error {
 		logger.LogCloseComplete(d.logger, mode, duration, nil)
 		return nil
 	case <-ctx.Done():
+		// Interrupt in-flight retry sleeps so workers can abandon remaining
+		// retries and exit instead of running out the full backoff schedule.
+		d.signalQuit()
 		duration := time.Since(startTime)
 		logger.LogCloseComplete(d.logger, mode, duration, ctx.Err())
 		return ctx.Err()

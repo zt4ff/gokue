@@ -560,7 +560,7 @@ func TestCloseStopsAcceptingNewSubmissions(t *testing.T) {
 }
 
 // TestRetryAbandonedOnQuit verifies that in-progress retries are abandoned
-// when the dispatcher is closed.
+// when Close's context is cancelled during drain.
 func TestRetryAbandonedOnQuit(t *testing.T) {
 	cfg := config.Config{
 		MemoryType:      config.InMemory,
@@ -575,7 +575,7 @@ func TestRetryAbandonedOnQuit(t *testing.T) {
 
 	d := dispatcher.NewDispatcher(cfg, nil)
 
-	// Submit a job that fails once then succeeds
+	// Submit a job that always fails so it enters the retry backoff.
 	attempts := &atomic.Int32{}
 	job := &failJob{attempts: attempts}
 
@@ -587,24 +587,34 @@ func TestRetryAbandonedOnQuit(t *testing.T) {
 		t.Fatalf("submit failed: %v", err)
 	}
 
-	// Wait for first attempt to fail and enter retry sleep
+	// Wait for first attempt to fail and enter retry sleep.
 	time.Sleep(100 * time.Millisecond)
 
-	// Close should interrupt the retry sleep
+	// Cancel the close context after a short delay; this should interrupt the
+	// retry sleep instead of waiting for the full backoff schedule.
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		cancel()
+	}()
+
 	startClose := time.Now()
-	closeErr := d.Close(context.Background())
+	closeErr := d.Close(ctx)
 	closeDuration := time.Since(startClose)
 
-	if closeErr != nil {
-		t.Fatalf("close failed: %v", closeErr)
+	if !errors.Is(closeErr, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", closeErr)
 	}
 
-	// Close should return quickly (not wait for full 1s retry delay)
+	// Close should return quickly (not wait for the full 1s retry delay).
 	if closeDuration > 500*time.Millisecond {
 		t.Errorf("close took %.1fms, expected < 500ms (retry should be interrupted)", closeDuration.Seconds()*1000)
 	}
 
-	// Check stats - job should be failed (retries abandoned)
+	// Give the worker a moment to record the abandoned retry.
+	time.Sleep(100 * time.Millisecond)
+
+	// Check stats - job should be failed (retries abandoned).
 	stats := d.Stats()
 	if stats.Failed == 0 {
 		t.Error("expected failed count > 0 after retry abandoned")
@@ -631,9 +641,9 @@ func TestMultipleCloseCalls(t *testing.T) {
 	}
 }
 
-// TestDrainModeWithQuitChannel verifies that the quit channel is properly
-// used to interrupt retries during shutdown.
-func TestDrainModeWithQuitChannel(t *testing.T) {
+// TestDrainModeCompletesRetries verifies that drain mode lets in-flight retries
+// finish before Close returns.
+func TestDrainModeCompletesRetries(t *testing.T) {
 	cfg := config.Config{
 		MemoryType:      config.InMemory,
 		BackoffStrategy: config.Linear,
@@ -647,7 +657,7 @@ func TestDrainModeWithQuitChannel(t *testing.T) {
 
 	d := dispatcher.NewDispatcher(cfg, nil)
 
-	// Create a job that succeeds on 2nd attempt
+	// Create a job that succeeds on 2nd attempt.
 	callCount := &atomic.Int32{}
 	job := &testJob{
 		process: func(ctx context.Context) error {
@@ -667,10 +677,10 @@ func TestDrainModeWithQuitChannel(t *testing.T) {
 		t.Fatalf("submit failed: %v", err)
 	}
 
-	// Wait for first attempt and retry backoff to start
+	// Wait for the first attempt to fail and enter the backoff.
 	time.Sleep(50 * time.Millisecond)
 
-	// Close should interrupt the backoff and process remaining jobs
+	// Close should drain the retry rather than abandon it.
 	startClose := time.Now()
 	closeErr := d.Close(context.Background())
 	closeDuration := time.Since(startClose)
@@ -679,10 +689,19 @@ func TestDrainModeWithQuitChannel(t *testing.T) {
 		t.Fatalf("close failed: %v", closeErr)
 	}
 
-	// Should be faster than waiting for full backoff
-	if closeDuration > 500*time.Millisecond {
-		t.Logf("close took %.1fms (acceptable for drain mode)", closeDuration.Seconds()*1000)
+	if got := callCount.Load(); got != 2 {
+		t.Errorf("expected 2 attempts (retry completed during drain), got %d", got)
 	}
+
+	stats := d.Stats()
+	if stats.Processed != 1 {
+		t.Errorf("expected Processed 1 after drained retry, got %d", stats.Processed)
+	}
+	if stats.Failed != 0 {
+		t.Errorf("expected Failed 0 after drained retry, got %d", stats.Failed)
+	}
+
+	_ = closeDuration
 }
 
 // testJob is a helper job for testing with custom process logic

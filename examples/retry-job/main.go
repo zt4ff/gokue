@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/zt4ff/gokue"
+	"github.com/zt4ff/gokue/config"
 )
 
 type Email struct {
@@ -40,6 +41,7 @@ func main() {
 		gokue.WithQueueSize(64),
 		gokue.WithMaxRetries(4),
 		gokue.WithRetryDelay(500*time.Millisecond),
+		gokue.WithBackoffStrategy(config.Constant),
 		gokue.WithJobTimeout(2*time.Second),
 	)
 	if err != nil {
@@ -57,10 +59,11 @@ func main() {
 		panic(err)
 	}
 
-	// Drain the queue before reading the final statistics.
+	// Drain the queue before reading the final statistics. The timeout must
+	// cover the full retry schedule (initial attempt plus retries and delays).
 	shutdownCtx, cancel := context.WithTimeout(
 		context.Background(),
-		5*time.Second,
+		10*time.Second,
 	)
 	defer cancel()
 
