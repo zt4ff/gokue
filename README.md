@@ -11,7 +11,6 @@ optional structured logging.
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/zt4ff/gokue.svg)](https://pkg.go.dev/github.com/zt4ff/gokue)
 [![CI](https://github.com/zt4ff/gokue/actions/workflows/ci.yml/badge.svg)](https://github.com/zt4ff/gokue/actions/workflows/ci.yml)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/zt4ff/gokue)](https://github.com/zt4ff/gokue/blob/main/go.mod)
 [![codecov](https://codecov.io/gh/zt4ff/gokue/branch/main/graph/badge.svg)](https://codecov.io/gh/zt4ff/gokue)
 
 ## Overview
