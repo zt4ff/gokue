@@ -1,5 +1,9 @@
 # gokue
 
+<p align="center">
+  <img src="./gokue.png" alt="Gokue Logo" width="180" />
+</p>
+
 `gokue` is a small, dependency-light job queue for Go. It runs jobs on a fixed
 worker pool with a bounded in-memory queue, and provides per-attempt timeouts,
 retries with configurable backoff, panic recovery, atomic statistics, and
