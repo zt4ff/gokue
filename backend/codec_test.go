@@ -141,7 +141,7 @@ func TestCodecRegisterErrors(t *testing.T) {
 		},
 		{
 			name:   "unexported fields",
-			sample: func() job.Job { return &unexportedCodecJob{} },
+			sample: func() job.Job { return &unexportedCodecJob{secret: "hidden"} },
 			want:   ErrNoSerializableFields,
 		},
 		{
