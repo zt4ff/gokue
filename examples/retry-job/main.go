@@ -36,9 +36,9 @@ func (e Email) Process(ctx context.Context) error {
 
 func main() {
 	q, err := gokue.NewQueue(
-		gokue.WithWorkerCount(1),
+		gokue.WithWorkerCount(3),
 		gokue.WithQueueSize(64),
-		gokue.WithMaxRetries(2),
+		gokue.WithMaxRetries(4),
 		gokue.WithRetryDelay(500*time.Millisecond),
 		gokue.WithJobTimeout(2*time.Second),
 	)

@@ -113,9 +113,6 @@ type Job interface {
 - The `context.Context` passed to `Process` is cancelled when the job's
   configured timeout elapses, so long-running jobs should check `ctx.Done()`.
 
-Panics inside `Process` are recovered and converted into an error, so they
-follow the normal retry path and count toward `MaxRetries` like any other
-failure.
 
 ### Queues
 
