@@ -47,10 +47,10 @@ type Queue struct {
 	collector *stats.Collector
 }
 
-// WithMongoDB returns an Option that sets the Backend type to Mongo DB.
+// WithMongoDB returns an Option that sets the MemoryType type to Mongo DB.
 func WithMongoDB(cfg config.Config) Option {
 	return func(target *config.Config) {
-		target.Backend = config.MongoDB
+		target.MemoryType = config.MongoDB
 	}
 }
 
@@ -173,7 +173,7 @@ func WithLogger(w io.Writer) (Option, func() error) {
 //
 // B = base retry delay.
 // N = retry attempt number starting from 1.
-func WithBackoffStrategy(stragegy string) Option {
+func WithBackoffStrategy(stragegy config.BackoffStrategy) Option {
 	return func(target *config.Config) {
 		target.BackoffStrategy = stragegy
 	}

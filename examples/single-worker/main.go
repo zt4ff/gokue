@@ -18,10 +18,15 @@ type Email struct {
 }
 
 // Process implements the gokue.Job interface and sends an email.
-func (e Email) Process(context.Context) error {
+func (e Email) Process(ctx context.Context) error {
 	// Simulate email service
-	time.Sleep(5 * time.Second)
-	fmt.Printf("Sending %s to %s\n", e.message, e.address)
+	select {
+	case <- time.After(10 * time.Second):
+		fmt.Printf("Sending %s to %s\n", e.message, e.address)
+	case <- ctx.Done():
+		fmt.Printf("Failed to send %s to %s: %v\n", e.message, e.address, ctx.Err())
+		return ctx.Err()
+	}
 	return nil
 }
 

@@ -10,8 +10,8 @@ import (
 func TestDefault(t *testing.T) {
 	cfg := Default()
 
-	if cfg.Backend != InMemory {
-		t.Errorf("expected backend %q, got %q", InMemory, cfg.Backend)
+	if cfg.MemoryType != InMemory {
+		t.Errorf("expected backend %q, got %q", InMemory, cfg.MemoryType)
 	}
 	if cfg.WorkerCount != runtime.GOMAXPROCS(0) {
 		t.Errorf("expected worker count %d, got %d", runtime.GOMAXPROCS(0), cfg.WorkerCount)
@@ -54,7 +54,7 @@ func TestValidateValidConfigs(t *testing.T) {
 		},
 		"in-memory with constant backoff": {
 			config: Config{
-				Backend:         InMemory,
+				MemoryType:      InMemory,
 				WorkerCount:     1,
 				QueueSize:       1,
 				BackoffStrategy: Constant,
@@ -62,7 +62,7 @@ func TestValidateValidConfigs(t *testing.T) {
 		},
 		"exponential-jitter backoff": {
 			config: Config{
-				Backend:         InMemory,
+				MemoryType:      InMemory,
 				WorkerCount:     2,
 				QueueSize:       5,
 				BackoffStrategy: ExponentialJitter,
@@ -70,7 +70,7 @@ func TestValidateValidConfigs(t *testing.T) {
 		},
 		"zero values allowed for optional fields": {
 			config: Config{
-				Backend:         InMemory,
+				MemoryType:      InMemory,
 				WorkerCount:     1,
 				QueueSize:       1,
 				MaxRetries:      0,
@@ -99,17 +99,17 @@ func TestValidateInvalidConfigs(t *testing.T) {
 	}{
 		"unsupported backend": {
 			config: Config{
-				Backend: "wrong backend",
+				MemoryType: "wrong backend",
 			},
 		},
 		"empty backend": {
 			config: Config{
-				Backend: "",
+				MemoryType: "",
 			},
 		},
 		"unsupported backoff strategy": {
 			config: Config{
-				Backend:         InMemory,
+				MemoryType:      InMemory,
 				WorkerCount:     1,
 				QueueSize:       1,
 				BackoffStrategy: "quadratic",
@@ -117,7 +117,7 @@ func TestValidateInvalidConfigs(t *testing.T) {
 		},
 		"empty backoff strategy": {
 			config: Config{
-				Backend:         InMemory,
+				MemoryType:      InMemory,
 				WorkerCount:     1,
 				QueueSize:       1,
 				BackoffStrategy: "",
@@ -125,7 +125,7 @@ func TestValidateInvalidConfigs(t *testing.T) {
 		},
 		"zero worker count": {
 			config: Config{
-				Backend:         InMemory,
+				MemoryType:      InMemory,
 				WorkerCount:     0,
 				QueueSize:       1,
 				BackoffStrategy: Exponential,
@@ -133,7 +133,7 @@ func TestValidateInvalidConfigs(t *testing.T) {
 		},
 		"negative worker count": {
 			config: Config{
-				Backend:         InMemory,
+				MemoryType:      InMemory,
 				WorkerCount:     -1,
 				QueueSize:       1,
 				BackoffStrategy: Exponential,
@@ -141,7 +141,7 @@ func TestValidateInvalidConfigs(t *testing.T) {
 		},
 		"zero queue size": {
 			config: Config{
-				Backend:         InMemory,
+				MemoryType:      InMemory,
 				WorkerCount:     1,
 				QueueSize:       0,
 				BackoffStrategy: Exponential,
@@ -149,7 +149,7 @@ func TestValidateInvalidConfigs(t *testing.T) {
 		},
 		"negative queue size": {
 			config: Config{
-				Backend:         InMemory,
+				MemoryType:      InMemory,
 				WorkerCount:     1,
 				QueueSize:       -1,
 				BackoffStrategy: Exponential,
@@ -157,7 +157,7 @@ func TestValidateInvalidConfigs(t *testing.T) {
 		},
 		"negative max retries": {
 			config: Config{
-				Backend:         InMemory,
+				MemoryType:      InMemory,
 				WorkerCount:     1,
 				QueueSize:       1,
 				MaxRetries:      -1,
@@ -166,7 +166,7 @@ func TestValidateInvalidConfigs(t *testing.T) {
 		},
 		"negative job timeout": {
 			config: Config{
-				Backend:         InMemory,
+				MemoryType:      InMemory,
 				WorkerCount:     1,
 				QueueSize:       1,
 				JobTimeout:      -1,
@@ -175,7 +175,7 @@ func TestValidateInvalidConfigs(t *testing.T) {
 		},
 		"negative retry delay": {
 			config: Config{
-				Backend:         InMemory,
+				MemoryType:      InMemory,
 				WorkerCount:     1,
 				QueueSize:       1,
 				RetryDelay:      -1,
@@ -184,7 +184,7 @@ func TestValidateInvalidConfigs(t *testing.T) {
 		},
 		"negative max retry delay": {
 			config: Config{
-				Backend:         InMemory,
+				MemoryType:      InMemory,
 				WorkerCount:     1,
 				QueueSize:       1,
 				MaxRetryDelay:   -1,
@@ -193,7 +193,7 @@ func TestValidateInvalidConfigs(t *testing.T) {
 		},
 		"negative shutdown timeout": {
 			config: Config{
-				Backend:         InMemory,
+				MemoryType:      InMemory,
 				WorkerCount:     1,
 				QueueSize:       1,
 				ShutdownTimeout: -1,

@@ -1,6 +1,6 @@
 PHASE 2:
 
-Backend abstraction interface
+MemoryType abstraction interface
 
 In-memory backend impl
 

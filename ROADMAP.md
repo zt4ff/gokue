@@ -3,25 +3,25 @@
 
 ## Phase 2
 
-### 7. [`enhancement`] Backend Abstraction Interface
+### 7. [`enhancement`] MemoryType Abstraction Interface
 
 - **Issue Title:** Define a backend abstraction interface
 - **Labels:** `enhancement`
-- **Description:** Currently, job storage is hard-coded to an in-memory Go channel inside `dispatcher.Dispatcher`. To support persistent backends (SQL, Redis, etc.), we need a clean `Backend` interface that encapsulates enqueue, dequeue, ack, and lifecycle operations. This is the foundation for all Phase 2 storage features (DLQ, cancellation, scheduling, etc.).
+- **Description:** Currently, job storage is hard-coded to an in-memory Go channel inside `dispatcher.Dispatcher`. To support persistent backends (SQL, Redis, etc.), we need a clean `MemoryType` interface that encapsulates enqueue, dequeue, ack, and lifecycle operations. This is the foundation for all Phase 2 storage features (DLQ, cancellation, scheduling, etc.).
 - **Acceptance Criteria:**
-  - `Backend` interface is clean, minimal, and supports all current features
+  - `MemoryType` interface is clean, minimal, and supports all current features
   - Dispatcher works identically with the in-memory backend
   - New backends can be implemented without touching dispatcher internals
   - All existing tests pass
 
-### 8. [`enhancement`, `good-first-issue`] In-Memory Backend Implementation
+### 8. [`enhancement`, `good-first-issue`] In-Memory MemoryType Implementation
 
-- **Issue Title:** Implement in-memory backend as formal Backend implementation
+- **Issue Title:** Implement in-memory backend as formal MemoryType implementation
 - **Labels:** `enhancement`, `good-first-issue`
-- **Description:** Once the `Backend` interface is defined (issue #7), move the current channel-based in-memory queue into a proper `MemoryBackend` struct. This separates concerns and validates that the interface is usable.
+- **Description:** Once the `MemoryType` interface is defined (issue #7), move the current channel-based in-memory queue into a proper `MemoryMemoryType` struct. This separates concerns and validates that the interface is usable.
 - **Acceptance Criteria:**
-  - `MemoryBackend` implements `Backend` interface fully
-  - All dispatcher/queue tests pass using `MemoryBackend`
+  - `MemoryMemoryType` implements `MemoryType` interface fully
+  - All dispatcher/queue tests pass using `MemoryMemoryType`
   - Performance is comparable to direct channel approach
 
 ### 9. [`enhancement`] Dead-Letter Queue (DLQ)

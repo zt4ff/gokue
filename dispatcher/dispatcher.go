@@ -424,7 +424,7 @@ func runJob(name string, j job.Job, timeout time.Duration) (err error) {
 //
 // Note: math/rand global functions are safe for concurrent use in Go 1.20+.
 // For older Go versions, supply a locked per-worker rand.Rand source instead.
-func retryDelay(base time.Duration, maxDelay time.Duration, attempt int, strategy string) time.Duration {
+func retryDelay(base time.Duration, maxDelay time.Duration, attempt int, strategy config.BackoffStrategy) time.Duration {
 	if base <= 0 {
 		return 0
 	}

@@ -174,7 +174,6 @@ cfg.RetryPredicates = func(err error) bool {
 }
 
 q, err := gokue.NewQueue(
-	gokue.WithBackOffStrategy(config.InMemory)
 	gokue.WithWorkerCount(1),
 	gokue.WithQueueSize(64),
 	gokue.WithMaxRetries(2),

@@ -17,7 +17,7 @@ func setup(t *testing.T) *dispatcher.Dispatcher {
 	t.Helper()
 
 	config := config.Config{
-		Backend:         config.InMemory,
+		MemoryType:      config.InMemory,
 		BackoffStrategy: config.Exponential,
 		QueueSize:       10,
 		WorkerCount:     2,
@@ -109,7 +109,7 @@ func TestSubmitWithNilJob(t *testing.T) {
 
 func TestTrySubmitQueueFull(t *testing.T) {
 	config := config.Config{
-		Backend:         "in-memory",
+		MemoryType:      "in-memory",
 		QueueSize:       1,
 		WorkerCount:     1,
 		MaxRetries:      0,
@@ -285,7 +285,7 @@ func TestMultipleSubmits(t *testing.T) {
 // for a long-running job to complete before returning.
 func TestCloseDrainWaitsForLongRunningJob(t *testing.T) {
 	cfg := config.Config{
-		Backend:         config.InMemory,
+		MemoryType:      config.InMemory,
 		BackoffStrategy: config.Exponential,
 		QueueSize:       10,
 		WorkerCount:     1,
@@ -337,7 +337,7 @@ func TestCloseDrainWaitsForLongRunningJob(t *testing.T) {
 // the context times out while waiting for workers.
 func TestCloseContextTimeoutReturnsError(t *testing.T) {
 	cfg := config.Config{
-		Backend:         config.InMemory,
+		MemoryType:      config.InMemory,
 		BackoffStrategy: config.Constant,
 		QueueSize:       10,
 		WorkerCount:     1,
@@ -393,7 +393,7 @@ func TestCloseContextTimeoutReturnsError(t *testing.T) {
 // returns quickly without waiting for workers.
 func TestCloseImmediateModeReturnsQuickly(t *testing.T) {
 	cfg := config.Config{
-		Backend:         config.InMemory,
+		MemoryType:      config.InMemory,
 		BackoffStrategy: config.Exponential,
 		QueueSize:       10,
 		WorkerCount:     1,
@@ -472,7 +472,7 @@ func TestCloseWithNilContextReturnsError(t *testing.T) {
 // jobs that were queued before Close was called.
 func TestCloseDrainProcessesQueuedJobs(t *testing.T) {
 	cfg := config.Config{
-		Backend:         config.InMemory,
+		MemoryType:      config.InMemory,
 		BackoffStrategy: config.Exponential,
 		QueueSize:       100,
 		WorkerCount:     1,
@@ -516,7 +516,7 @@ func TestCloseDrainProcessesQueuedJobs(t *testing.T) {
 // immediately after Close is called.
 func TestCloseStopsAcceptingNewSubmissions(t *testing.T) {
 	cfg := config.Config{
-		Backend:         config.InMemory,
+		MemoryType:      config.InMemory,
 		BackoffStrategy: config.Exponential,
 		QueueSize:       10,
 		WorkerCount:     1,
@@ -563,7 +563,7 @@ func TestCloseStopsAcceptingNewSubmissions(t *testing.T) {
 // when the dispatcher is closed.
 func TestRetryAbandonedOnQuit(t *testing.T) {
 	cfg := config.Config{
-		Backend:         config.InMemory,
+		MemoryType:      config.InMemory,
 		BackoffStrategy: config.Constant,
 		QueueSize:       10,
 		WorkerCount:     1,
@@ -635,7 +635,7 @@ func TestMultipleCloseCalls(t *testing.T) {
 // used to interrupt retries during shutdown.
 func TestDrainModeWithQuitChannel(t *testing.T) {
 	cfg := config.Config{
-		Backend:         config.InMemory,
+		MemoryType:      config.InMemory,
 		BackoffStrategy: config.Linear,
 		QueueSize:       10,
 		WorkerCount:     1,
@@ -750,7 +750,7 @@ func TestLoggingOnJobSubmit(t *testing.T) {
 	logger := &recordingLogger{}
 
 	cfg := config.Config{
-		Backend:         config.InMemory,
+		MemoryType:      config.InMemory,
 		BackoffStrategy: config.Exponential,
 		QueueSize:       10,
 		WorkerCount:     1,
@@ -788,7 +788,7 @@ func TestLoggingOnJobRejection(t *testing.T) {
 	logger := &recordingLogger{}
 
 	cfg := config.Config{
-		Backend:         config.InMemory,
+		MemoryType:      config.InMemory,
 		BackoffStrategy: config.Exponential,
 		QueueSize:       10,
 		WorkerCount:     1,
@@ -822,7 +822,7 @@ func TestLoggingOnRetry(t *testing.T) {
 	logger := &recordingLogger{}
 
 	cfg := config.Config{
-		Backend:         config.InMemory,
+		MemoryType:      config.InMemory,
 		BackoffStrategy: config.Exponential,
 		QueueSize:       10,
 		WorkerCount:     1,
@@ -868,7 +868,7 @@ func TestLoggingOnSuccess(t *testing.T) {
 	logger := &recordingLogger{}
 
 	cfg := config.Config{
-		Backend:         config.InMemory,
+		MemoryType:      config.InMemory,
 		BackoffStrategy: config.Exponential,
 		QueueSize:       10,
 		WorkerCount:     1,
@@ -905,7 +905,7 @@ func TestLoggingOnCloseStart(t *testing.T) {
 	logger := &recordingLogger{}
 
 	cfg := config.Config{
-		Backend:         config.InMemory,
+		MemoryType:      config.InMemory,
 		BackoffStrategy: config.Exponential,
 		QueueSize:       10,
 		WorkerCount:     1,
@@ -939,7 +939,7 @@ func TestLoggingContainsRequiredFields(t *testing.T) {
 	logger := &recordingLogger{}
 
 	cfg := config.Config{
-		Backend:         config.InMemory,
+		MemoryType:      config.InMemory,
 		BackoffStrategy: config.Exponential,
 		QueueSize:       10,
 		WorkerCount:     1,
@@ -983,7 +983,7 @@ func TestLoggingContainsRequiredFields(t *testing.T) {
 // TestLoggingWithNilLogger verifies dispatcher works with nil logger (logging disabled).
 func TestLoggingWithNilLogger(t *testing.T) {
 	cfg := config.Config{
-		Backend:         config.InMemory,
+		MemoryType:      config.InMemory,
 		BackoffStrategy: config.Exponential,
 		QueueSize:       10,
 		WorkerCount:     1,
@@ -1034,7 +1034,7 @@ func (j *blockingJob) Process(ctx context.Context) error {
 func TestRetryPredicateAllowsAllRetries(t *testing.T) {
 	logger := &recordingLogger{}
 	cfg := config.Config{
-		Backend:         config.InMemory,
+		MemoryType:      config.InMemory,
 		BackoffStrategy: config.Exponential,
 		QueueSize:       10,
 		WorkerCount:     1,
@@ -1081,7 +1081,7 @@ func TestRetryPredicateAllowsAllRetries(t *testing.T) {
 func TestRetryPredicateBlocksRetry(t *testing.T) {
 	logger := &recordingLogger{}
 	cfg := config.Config{
-		Backend:         config.InMemory,
+		MemoryType:      config.InMemory,
 		BackoffStrategy: config.Exponential,
 		QueueSize:       10,
 		WorkerCount:     1,
@@ -1127,7 +1127,7 @@ func TestRetryPredicateBlocksRetry(t *testing.T) {
 // replaces the config-level predicate.
 func TestRetryPredicateTaskOverride(t *testing.T) {
 	cfg := config.Config{
-		Backend:         config.InMemory,
+		MemoryType:      config.InMemory,
 		BackoffStrategy: config.Exponential,
 		QueueSize:       10,
 		WorkerCount:     1,
@@ -1168,7 +1168,7 @@ func TestRetryPredicateTaskOverride(t *testing.T) {
 // config value.
 func TestTaskMaxRetriesOverride(t *testing.T) {
 	cfg := config.Config{
-		Backend:         config.InMemory,
+		MemoryType:      config.InMemory,
 		BackoffStrategy: config.Exponential,
 		QueueSize:       10,
 		WorkerCount:     1,
@@ -1204,7 +1204,7 @@ func TestTaskMaxRetriesOverride(t *testing.T) {
 // config value.
 func TestTaskRetryDelayOverride(t *testing.T) {
 	cfg := config.Config{
-		Backend:         config.InMemory,
+		MemoryType:      config.InMemory,
 		BackoffStrategy: config.Constant,
 		QueueSize:       10,
 		WorkerCount:     1,
@@ -1250,7 +1250,7 @@ func TestTaskRetryDelayOverride(t *testing.T) {
 func TestSubmitDerivesNameFromJob(t *testing.T) {
 	logger := &recordingLogger{}
 	cfg := config.Config{
-		Backend:         config.InMemory,
+		MemoryType:      config.InMemory,
 		BackoffStrategy: config.Exponential,
 		QueueSize:       10,
 		WorkerCount:     1,
@@ -1287,7 +1287,7 @@ func TestSubmitDerivesNameFromJob(t *testing.T) {
 // submission and increments the dropped counter.
 func TestSubmitContextCancelled(t *testing.T) {
 	cfg := config.Config{
-		Backend:         config.InMemory,
+		MemoryType:      config.InMemory,
 		BackoffStrategy: config.Exponential,
 		QueueSize:       1,
 		WorkerCount:     1,
@@ -1365,7 +1365,7 @@ func TestTrySubmitClosed(t *testing.T) {
 // TestTrySubmitEnqueues verifies TrySubmit succeeds when the queue has capacity.
 func TestTrySubmitEnqueues(t *testing.T) {
 	cfg := config.Config{
-		Backend:         config.InMemory,
+		MemoryType:      config.InMemory,
 		BackoffStrategy: config.Exponential,
 		QueueSize:       10,
 		WorkerCount:     1,
@@ -1442,7 +1442,7 @@ func TestWorkerRecoversFromInternalPanic(t *testing.T) {
 	logger := &panicOnEventLogger{panicOn: string(logging.EventJobFailed)}
 
 	cfg := config.Config{
-		Backend:         config.InMemory,
+		MemoryType:      config.InMemory,
 		BackoffStrategy: config.Exponential,
 		QueueSize:       10,
 		WorkerCount:     1,

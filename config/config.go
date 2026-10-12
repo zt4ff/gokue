@@ -11,14 +11,18 @@ import (
 )
 
 // Memory Type
+type MemoryType string
+
 const (
 	// InMemory is the configuration to use in-memory backend.
-	InMemory = "in-memory"
+	InMemory MemoryType = "in-memory"
 	// MongoDB is the configuration to use Mongo DB backend.
-	MongoDB = "mongo-db"
+	MongoDB MemoryType = "mongo-db"
 )
 
 // Backoff strategy
+type BackoffStrategy string
+
 const (
 	// Constant is the backoff strategy that retries after a fixed delay.
 	//
@@ -30,7 +34,7 @@ const (
 	//   retries = 2s, 2s, 2s, 2s...
 	//
 	// B = base retry delay.
-	Constant = "constant"
+	Constant BackoffStrategy = "constant"
 
 	// Linear is the backoff strategy that increases the retry delay
 	// by a fixed amount on every retry.
@@ -44,7 +48,7 @@ const (
 	//
 	// B = base retry delay.
 	// N = retry attempt number starting from 1.
-	Linear = "linear"
+	Linear BackoffStrategy = "linear"
 
 	// Exponential is the backoff strategy that doubles the retry delay
 	// on every retry attempt.
@@ -58,7 +62,7 @@ const (
 	//
 	// B = base retry delay.
 	// N = retry attempt number starting from 1.
-	Exponential = "exponential"
+	Exponential BackoffStrategy = "exponential"
 
 	// ExponentialJitter is the exponential backoff strategy with
 	// randomness added to reduce synchronized retries and retry storms.
@@ -72,13 +76,13 @@ const (
 	//
 	// B = base retry delay.
 	// N = retry attempt number starting from 1.
-	ExponentialJitter = "exponential-jitter"
+	ExponentialJitter BackoffStrategy = "exponential-jitter"
 )
 
 // Config holds the configuration for a job queue.
 type Config struct {
-	// Backend is the storage type of the queue.
-	Backend string
+	// MemoryType is the storage type of the queue.
+	MemoryType MemoryType
 	// WorkerCount is the CPU count simultaneosly executing the jobs.
 	WorkerCount int
 	// QueueSize is the maximum number of jobs that can be enqueued in a queue.
@@ -93,7 +97,7 @@ type Config struct {
 	// A zero or negative value means no cap.
 	MaxRetryDelay time.Duration
 	// BackoffStrategy is the strategy to handle resilience and how to calculate retry time.
-	BackoffStrategy string
+	BackoffStrategy BackoffStrategy
 	// ShutdownTimeout is the maximum duration to wait for graceful shutdown.
 	ShutdownTimeout time.Duration
 	// RetryPredicates allows config-wide callback checks on when to retry failed jobs.
@@ -111,7 +115,7 @@ var ErrInvalidConfig = errors.New("invalid queue config")
 // Default returns a Config with sensible default values.
 func Default() Config {
 	return Config{
-		Backend:         InMemory,
+		MemoryType:      InMemory,
 		WorkerCount:     runtime.GOMAXPROCS(0),
 		QueueSize:       1024,
 		MaxRetries:      3,
@@ -127,10 +131,10 @@ func Default() Config {
 
 // Validate checks if the Config is valid and returns an error if any field is invalid.
 func (c *Config) Validate() error {
-	switch c.Backend {
+	switch c.MemoryType {
 	case InMemory, MongoDB:
 	default:
-		return fmt.Errorf("%w: unsupported backend %q", ErrInvalidConfig, c.Backend)
+		return fmt.Errorf("%w: unsupported backend %q", ErrInvalidConfig, c.MemoryType)
 	}
 
 	switch c.BackoffStrategy {

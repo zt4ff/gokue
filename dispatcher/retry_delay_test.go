@@ -87,7 +87,7 @@ func TestRetryDelayJitterUsesCap(t *testing.T) {
 }
 
 func TestRetryDelayZeroBase(t *testing.T) {
-	for _, strategy := range []string{config.Constant, config.Linear, config.Exponential, config.ExponentialJitter, "unknown"} {
+	for _, strategy := range []config.BackoffStrategy{config.Constant, config.Linear, config.Exponential, config.ExponentialJitter, "unknown"} {
 		if got := retryDelay(0, 0, 0, strategy); got != 0 {
 			t.Errorf("strategy %s: expected 0, got %v", strategy, got)
 		}
