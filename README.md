@@ -34,7 +34,7 @@ external service is required to use the core package.
 - Per-attempt job timeout and per-submission retry overrides.
 - Config-level retry predicate to decide whether a given error is retryable.
 - Job panic recovery; a panicking job is treated as a failure.
-- Atomic, lock-free statistics snapshot via `Stats`.
+- Atomic, lock-free statistics snapshot via `Stats`: cumulative counters plus live `QueueDepth`, `Running` and `IdleWorkers` gauges.
 - Optional structured JSON logging via `WithLogger`.
 - Graceful shutdown that drains running and queued jobs (plus an immediate mode on `dispatcher`).
 

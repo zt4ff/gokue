@@ -33,6 +33,16 @@ type Snapshot struct {
 	Dropped uint64
 	// RetryPredicatesFailed is the total number of job that failed a retry predicate function.
 	RetryPredicatesFailed uint64
+
+	// QueueDepth is the number of jobs currently waiting in the queue.
+	// It is a live gauge filled in by Dispatcher.Stats and Queue.Stats.
+	QueueDepth int
+	// Running is the number of jobs currently being executed, including jobs
+	// waiting between retry attempts. Live gauge.
+	Running int
+	// IdleWorkers is the number of live workers not currently running a job.
+	// Live gauge.
+	IdleWorkers int
 }
 
 // NewCollector creates and returns a new Collector initialized with zero values.
