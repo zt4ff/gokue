@@ -647,12 +647,55 @@ constructor and URI behavior; they do not connect to a MongoDB server.
 CI runs `go vet`, `staticcheck`, and `go test -count=1 -race ./...` on the
 `stable` and `oldstable` Go toolchains.
 
+## Benchmarks
+
+The benchmarks live in [`gokue_bench_test.go`](gokue_bench_test.go) and use
+no-op jobs, so they measure queue overhead rather than job work. Run them with:
+
+```
+go test -run='^$' -bench=. -benchmem -count=6 .
+```
+
+| Benchmark | What it measures |
+| --- | --- |
+| `Submit` | `Submit` from one goroutine while the default worker pool drains the queue. |
+| `SubmitParallel` | `Submit` from `GOMAXPROCS` goroutines at once. |
+| `TrySubmit` | `TrySubmit`, retried while the queue is full, so each op is one enqueued job. |
+| `Throughput/workers=N` | Submit `b.N` jobs and wait for all to complete; reports enqueue-to-complete latency under load. |
+| `EndToEndLatency` | One job at a time through an idle queue: submit, run, complete. |
+| `Retry` | Jobs that fail once and succeed on an immediate retry (`RetryDelay` 0). |
+
+Results on an 8-vCPU Intel Xeon VM (linux/amd64, Go 1.23.4, default options
+unless noted), medians of 6 runs from
+[`benchstat`](https://pkg.go.dev/golang.org/x/perf/cmd/benchstat):
+
+| Benchmark | ns/op | jobs/s | p50 latency | p99 latency | B/op | allocs/op |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `Submit` | 806 | 1.24M | — | — | 792 | 12 |
+| `SubmitParallel` | 984 | 1.02M | — | — | 792 | 12 |
+| `TrySubmit` | 797 | 1.26M | — | — | 792 | 12 |
+| `Throughput/workers=1` | 1,064 | 940k | 980 µs | 1.73 ms | 792 | 12 |
+| `Throughput/workers=4` | 757 | 1.32M | 62 µs | 501 µs | 792 | 12 |
+| `Throughput/workers=16` | 767 | 1.31M | 62 µs | 204 µs | 792 | 12 |
+| `EndToEndLatency` | 1,794 | — | 1.4 µs | 5.0 µs | 792 | 12 |
+| `Retry` | 837 | 1.20M | — | — | 1,472 | 22 |
+
+Allocations are per job and include execution, not just the `Submit` call.
+Latency in `Throughput` includes time spent waiting in the queue: with one
+worker the 1024-slot queue stays full, so p50 is roughly 1024 jobs' worth of
+processing. Numbers vary by machine; compare runs on the same host with
+`benchstat`.
+
+CI runs every benchmark once per push on the `stable` toolchain as a smoke
+test; there is no regression gate.
+
 ## Status
 
 Available now:
 
 - In-memory queue, worker pool, submission, retries and backoff, per-attempt
   timeout, panic recovery, statistics, optional logging, graceful shutdown.
+- A benchmark suite with published numbers (see [Benchmarks](#benchmarks)).
 - Standalone persistence package: `backend.JobStore`, `backend.MemoryStore`,
   `backend.Codec`, and the MongoDB connection/store in `backend/mongodb`.
 
@@ -661,8 +704,8 @@ Not yet available (see [`ROADMAP.md`](ROADMAP.md)):
 - Queue integration with a storage backend (`MemoryType` abstraction).
 - Dead-letter queue, job cancellation, priority levels, idempotency keys.
 - Scheduled/delayed jobs, cron jobs, dynamic worker scaling.
-- Result futures, typed generic jobs, job groups, batch submit, health checks,
-  and a benchmark suite.
+- Result futures, typed generic jobs, job groups, batch submit, and health
+  checks.
 
 Known gaps in the current API:
 

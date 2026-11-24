@@ -41,6 +41,11 @@ jobs:
       - name: Test with race detector
         run: go test -count=1 -race -coverprofile=coverage.txt -covermode=atomic ./...
 
+      # Smoke-runs the benchmarks; numbers are not compared (no regression gate).
+      - name: Run benchmarks
+        if: matrix.go == 'stable'
+        run: go test -run='^$' -bench=. -benchmem -benchtime=10000x ./...
+
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
