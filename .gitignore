@@ -1,2 +1,6 @@
-issues.md
 coverage.txt
+issues.md
+.vscode/
+.idea/
+*.test
+*.out

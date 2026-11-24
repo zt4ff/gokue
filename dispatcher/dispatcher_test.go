@@ -122,16 +122,19 @@ func TestTrySubmitQueueFull(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Create a slow job that will block the worker
-	slowTask := dispatcher.Task{
-		Name: "slow-job",
-		Job:  &slowJob{duration: 500 * time.Millisecond},
-	}
-
-	// Submit the slow job
-	err := d.Submit(ctx, slowTask)
-	if err != nil {
+	// Occupy the worker, then fill the single queue slot.
+	started := make(chan struct{})
+	release := make(chan struct{})
+	defer close(release)
+	if err := d.Submit(ctx, dispatcher.Task{
+		Name: "blocking-job",
+		Job:  &signalJob{started: started, release: release},
+	}); err != nil {
 		t.Fatalf("first submit failed: %v", err)
+	}
+	<-started
+	if err := d.Submit(ctx, dispatcher.Task{Name: "queued-job", Job: &successJob{}}); err != nil {
+		t.Fatalf("second submit failed: %v", err)
 	}
 
 	// Try to submit another job - queue should be full
@@ -140,7 +143,7 @@ func TestTrySubmitQueueFull(t *testing.T) {
 		Job:  &successJob{},
 	}
 
-	err = d.TrySubmit(ctx, task)
+	err := d.TrySubmit(ctx, task)
 	if err == nil {
 		t.Error("expected ErrQueueFull, got nil")
 	}
@@ -1035,6 +1038,21 @@ func TestLoggingWithNilLogger(t *testing.T) {
 }
 
 // blockingJob blocks until released or the context is cancelled.
+type signalJob struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (j *signalJob) Process(ctx context.Context) error {
+	close(j.started)
+	select {
+	case <-j.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 type blockingJob struct {
 	release chan struct{}
 }
