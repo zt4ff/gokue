@@ -438,6 +438,7 @@ func (d *Dispatcher) execute(task Task) {
 			duration := time.Since(startTime)
 			d.collector.IncProcessed()
 			logger.LogJobSuccess(d.logger, task.Name, duration)
+			d.callHook(d.cfg.OnSuccess, config.JobEvent{Name: task.Name, Attempt: attempt + 1, Duration: duration})
 			return
 		}
 
@@ -449,6 +450,7 @@ func (d *Dispatcher) execute(task Task) {
 			d.collector.IncRetryPredicatesFailed()
 			d.collector.IncFailed()
 			logger.LogJobFailure(d.logger, task.Name, attempt+1, err, duration)
+			d.callHook(d.cfg.OnFailure, config.JobEvent{Name: task.Name, Attempt: attempt + 1, Err: err, Duration: duration})
 			return
 		}
 
@@ -456,6 +458,7 @@ func (d *Dispatcher) execute(task Task) {
 			d.collector.IncRetried()
 			delay := retryDelay(retryBaseDelay, d.cfg.MaxRetryDelay, attempt, d.cfg.BackoffStrategy)
 			logger.LogJobRetry(d.logger, task.Name, attempt+1, err, delay)
+			d.callHook(d.cfg.OnRetry, config.JobEvent{Name: task.Name, Attempt: attempt + 1, Err: err, Duration: time.Since(startTime), RetryDelay: delay})
 
 			if delay > 0 {
 				select {
@@ -466,6 +469,7 @@ func (d *Dispatcher) execute(task Task) {
 					d.collector.IncFailed()
 					duration := time.Since(startTime)
 					logger.LogJobAbandoned(d.logger, task.Name, attempt+1, logger.ReasonDispatcherShutdown, duration)
+					d.callHook(d.cfg.OnFailure, config.JobEvent{Name: task.Name, Attempt: attempt + 1, Err: err, Duration: duration})
 					return
 				}
 			}
@@ -476,6 +480,21 @@ func (d *Dispatcher) execute(task Task) {
 	duration := time.Since(startTime)
 	d.collector.IncFailed()
 	logger.LogJobFailure(d.logger, task.Name, maxRetries+1, err, duration)
+	d.callHook(d.cfg.OnFailure, config.JobEvent{Name: task.Name, Attempt: maxRetries + 1, Err: err, Duration: duration})
+}
+
+// callHook invokes a lifecycle hook, recovering from panics so a faulty hook
+// cannot change the job's outcome or kill the worker.
+func (d *Dispatcher) callHook(hook func(config.JobEvent), event config.JobEvent) {
+	if hook == nil {
+		return
+	}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			logger.LogWorkerPanic(d.logger, recovered)
+		}
+	}()
+	hook(event)
 }
 
 // runJob executes a job with the specified timeout and recovers from any panics.

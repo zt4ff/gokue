@@ -146,6 +146,35 @@ func WithMaxRetryDelay(delay time.Duration) Option {
 	}
 }
 
+// JobEvent describes a job outcome passed to lifecycle hooks.
+type JobEvent = config.JobEvent
+
+// WithOnSuccess returns an Option that calls hook once when a job succeeds.
+// Hooks run synchronously on the worker goroutine, so keep them fast; a
+// panicking hook is recovered.
+func WithOnSuccess(hook func(JobEvent)) Option {
+	return func(target *config.Config) {
+		target.OnSuccess = hook
+	}
+}
+
+// WithOnFailure returns an Option that calls hook once when a job fails for
+// good: retries exhausted, retry predicate returned false, or retries
+// abandoned during shutdown.
+func WithOnFailure(hook func(JobEvent)) Option {
+	return func(target *config.Config) {
+		target.OnFailure = hook
+	}
+}
+
+// WithOnRetry returns an Option that calls hook before each retry of a failed
+// attempt.
+func WithOnRetry(hook func(JobEvent)) Option {
+	return func(target *config.Config) {
+		target.OnRetry = hook
+	}
+}
+
 // WithRetryPredicate returns an Option that sets the queue-level retry predicate.
 // A failed job is retried only when predicate returns true; otherwise it is
 // marked failed immediately. Use RetryIf to override it per submission.
