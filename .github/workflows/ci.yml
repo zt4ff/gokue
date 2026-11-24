@@ -14,6 +14,7 @@ jobs:
     name: Test (Go ${{ matrix.go }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         # 1.22.x is the minimum version declared in go.mod.
         go: ['1.22.x', oldstable, stable]
