@@ -3,6 +3,8 @@ package logger
 import (
 	"bytes"
 	"errors"
+	"io"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -111,4 +113,30 @@ func TestLogHelpersWithErrors(t *testing.T) {
 	LogJobProcessing(logger, "job-name", 1)
 	LogSubmitEnqueued(logger, "job-name")
 	LogSubmitRejected(logger, "job-name", ReasonContextCancelled)
+}
+
+func TestNewLoggerCloserIgnoresPipeSync(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	go io.Copy(io.Discard, r)
+
+	l, closer := NewLogger(w)
+	l.Info("hello")
+	if err := closer(); err != nil {
+		t.Fatalf("closer on pipe: %v", err)
+	}
+	if _, err := w.Write([]byte("x")); err == nil {
+		t.Fatal("expected pipe writer to be closed")
+	}
+}
+
+func TestNewLoggerCloserKeepsStdoutOpen(t *testing.T) {
+	_, closer := NewLogger(os.Stdout)
+	_ = closer()
+	if _, err := os.Stdout.Stat(); err != nil {
+		t.Fatalf("stdout closed by closer: %v", err)
+	}
 }

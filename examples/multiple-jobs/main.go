@@ -58,7 +58,11 @@ func main() {
 	ctx := context.Background()
 
 	defer func() {
-		if err := q.Close(ctx); err != nil {
+		// 16 five-second jobs on 4 workers need about 20s to drain, longer
+		// than the default 10s shutdown timeout.
+		closeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		if err := q.Close(closeCtx); err != nil {
 			panic(err)
 		}
 	}()

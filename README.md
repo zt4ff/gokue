@@ -467,8 +467,9 @@ case errors.Is(err, context.DeadlineExceeded):
 ### Logging
 
 Logging is disabled by default. `WithLogger` returns an option plus a closer that
-flushes and closes the writer; call the closer when the queue is no longer
-needed.
+flushes and closes the writer (`os.Stdout` and `os.Stderr` are flushed but left
+open, and pipes or terminals that cannot be synced don't cause an error); call
+the closer when the queue is no longer needed.
 
 ```go
 opt, closer := gokue.WithLogger(os.Stdout)

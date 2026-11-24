@@ -2,7 +2,10 @@
 package logger
 
 import (
+	"errors"
 	"io"
+	"os"
+	"syscall"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -41,7 +44,9 @@ type Logger interface {
 
 // NewLogger creates a structured logger that writes to w as JSON using zap,
 // along with a closer that flushes the logger and closes w when it implements
-// io.Closer. Call the closer (typically via defer) to release the write stream.
+// io.Closer (os.Stdout and os.Stderr are never closed). Sync errors from
+// writers that cannot be synced, such as pipes and terminals, are ignored.
+// Call the closer (typically via defer) to release the write stream.
 // The logger is safe for concurrent use; writes are serialized with a mutex.
 func NewLogger(w io.Writer) (Logger, func() error) {
 	core := zapcore.NewCore(
@@ -52,8 +57,11 @@ func NewLogger(w io.Writer) (Logger, func() error) {
 	sugar := zap.New(core).Sugar()
 
 	closer := func() error {
-		if err := sugar.Sync(); err != nil {
+		if err := sugar.Sync(); err != nil && !isUnsupportedSync(err) {
 			return err
+		}
+		if w == os.Stdout || w == os.Stderr {
+			return nil
 		}
 		if c, ok := w.(io.Closer); ok {
 			return c.Close()
@@ -62,4 +70,10 @@ func NewLogger(w io.Writer) (Logger, func() error) {
 	}
 
 	return &zapLogger{sugar: sugar}, closer
+}
+
+// isUnsupportedSync reports whether err means the writer does not support
+// fsync (pipes, terminals, character devices) rather than a failed flush.
+func isUnsupportedSync(err error) bool {
+	return errors.Is(err, syscall.EINVAL) || errors.Is(err, syscall.ENOTTY) || errors.Is(err, syscall.ENOTSUP)
 }
