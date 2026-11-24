@@ -164,7 +164,8 @@ func WithShutdownTimeout(timeout time.Duration) Option {
 }
 
 // WithLogger enables structured logging to w and returns the Option to pass to
-// NewQueue plus a closer that flushes the logger and closes the write stream.
+// NewQueue plus a closer that flushes the logger and closes the write stream
+// (os.Stdout and os.Stderr are left open).
 // Call the closer (typically via defer) when the queue is no longer needed.
 // Logging is disabled by default.
 func WithLogger(w io.Writer) (Option, func() error) {
