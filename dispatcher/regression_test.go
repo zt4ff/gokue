@@ -3,6 +3,7 @@ package dispatcher_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -207,3 +208,87 @@ func TestRetryPredicateNotConsultedOnFinalAttempt(t *testing.T) {
 type jobFunc func(context.Context) error
 
 func (f jobFunc) Process(ctx context.Context) error { return f(ctx) }
+
+type ctxKey struct{}
+
+// TestJobContextInheritsSubmitValues verifies that values on the submit context
+// reach Process, while the submit context's cancellation does not.
+func TestJobContextInheritsSubmitValues(t *testing.T) {
+	cfg := config.Default()
+	cfg.WorkerCount = 1
+	d := dispatcher.NewDispatcher(cfg, nil)
+
+	submitCtx, cancel := context.WithCancel(context.WithValue(context.Background(), ctxKey{}, "trace-123"))
+	got := make(chan interface{}, 1)
+	ctxErr := make(chan error, 1)
+	if err := d.Submit(submitCtx, dispatcher.Task{Job: jobFunc(func(ctx context.Context) error {
+		got <- ctx.Value(ctxKey{})
+		ctxErr <- ctx.Err()
+		return nil
+	})}); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	if err := d.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if v := <-got; v != "trace-123" {
+		t.Fatalf("expected submit ctx value, got %v", v)
+	}
+	if err := <-ctxErr; err != nil {
+		t.Fatalf("job ctx was cancelled by the submit ctx: %v", err)
+	}
+}
+
+// TestJobPanicRecordsStack verifies that a job panic is logged with its stack
+// trace and surfaces as a *PanicError.
+func TestJobPanicRecordsStack(t *testing.T) {
+	rl := &recordingLogger{}
+	cfg := config.Default()
+	cfg.WorkerCount = 1
+	cfg.MaxRetries = 0
+	cfg.Logger = rl
+
+	d := dispatcher.NewDispatcher(cfg, nil)
+	if err := d.Submit(context.Background(), dispatcher.Task{
+		Name: "panicky",
+		Job:  jobFunc(func(context.Context) error { panic("kaboom") }),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	for _, rec := range rl.logs {
+		if rec.msg != string(logging.EventJobPanic) {
+			continue
+		}
+		fields := map[string]interface{}{}
+		for i := 0; i+1 < len(rec.fields); i += 2 {
+			fields[rec.fields[i].(string)] = rec.fields[i+1]
+		}
+		if fields[string(logging.FieldPanic)] != "kaboom" {
+			t.Errorf("unexpected panic field %v", fields[string(logging.FieldPanic)])
+		}
+		stack, _ := fields[string(logging.FieldStack)].(string)
+		if !strings.Contains(stack, "TestJobPanicRecordsStack") {
+			t.Errorf("stack does not reference the panicking job:\n%s", stack)
+		}
+		return
+	}
+	t.Fatal("no job_panic event logged")
+}
+
+func TestPanicErrorUnwrapsWithErrorsAs(t *testing.T) {
+	var target *dispatcher.PanicError
+	err := error(&dispatcher.PanicError{Job: "j", Value: "v", Stack: []byte("s")})
+	if !errors.As(err, &target) || target.Value != "v" {
+		t.Fatalf("errors.As failed: %v", err)
+	}
+	if err.Error() != `job "j" panic: v` {
+		t.Fatalf("unexpected message %q", err.Error())
+	}
+}

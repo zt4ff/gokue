@@ -598,11 +598,16 @@ Invalid per-submission values make `Submit`/`TrySubmit` return a wrapped
 - **Durability:** none. The queue is in-memory, so queued and in-flight jobs are
   lost if the process exits unexpectedly. The `backend` package can persist jobs,
   but it is not wired into the queue.
+- **Job context:** `Process` receives a context that carries the values of the
+  `Submit` context (request IDs, trace spans) but not its cancellation or
+  deadline, so cancelling the submit context after `Submit` returns does not
+  cancel the job. `JobTimeout` and shutdown still apply.
 - **Backpressure:** `Submit` blocks until enqueued or the context ends;
   `TrySubmit` returns `ErrQueueFull` immediately. Rejected submissions increment
   `Dropped`.
-- **Panics:** a panic in a job's `Process` is recovered and reported as an error,
-  which then goes through the normal retry and failure path. Panics inside
+- **Panics:** a panic in a job's `Process` is recovered and reported as a
+  `*gokue.PanicError` (with the panic value and stack trace, also logged as a
+  `job_panic` event), which then goes through the normal retry and failure path. Panics inside
   dispatcher internals are recovered per job, so the process does not crash and
   the worker keeps serving the queue.
 - **Shutdown:** in drain mode, `Close` waits for all jobs, including retries and

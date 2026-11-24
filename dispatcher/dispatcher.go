@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -62,6 +63,23 @@ type Task struct {
 	RetryDelay *time.Duration
 	// RetryPredicates overrides the global RetryPredicates for this task when non-nil.
 	RetryPredicates func(error) bool
+
+	// ctx carries the submit context's values (not its cancellation) to the job.
+	ctx context.Context
+}
+
+// PanicError is the error recorded when a job's Process method panics.
+type PanicError struct {
+	// Job is the name of the job that panicked.
+	Job string
+	// Value is the value passed to panic.
+	Value interface{}
+	// Stack is the goroutine stack trace captured when the panic was recovered.
+	Stack []byte
+}
+
+func (e *PanicError) Error() string {
+	return fmt.Sprintf("job %q panic: %v", e.Job, e.Value)
 }
 
 // Dispatcher manages a pool of workers to execute tasks with configurable retry logic
@@ -146,7 +164,7 @@ func (d *Dispatcher) Submit(ctx context.Context, task Task) error {
 	if ctx == nil {
 		return ErrNilCtx
 	}
-	task, err := prepareTask(task)
+	task, err := prepareTask(ctx, task)
 	if err != nil {
 		return err
 	}
@@ -174,8 +192,10 @@ func (d *Dispatcher) Submit(ctx context.Context, task Task) error {
 	}
 }
 
-// prepareTask validates task and fills in its derived defaults.
-func prepareTask(task Task) (Task, error) {
+// prepareTask validates task and fills in its derived defaults. The job's
+// context inherits ctx's values but not its cancellation or deadline, since the
+// job runs after Submit returns.
+func prepareTask(ctx context.Context, task Task) (Task, error) {
 	if task.Job == nil {
 		return task, ErrNilJob
 	}
@@ -191,6 +211,7 @@ func prepareTask(task Task) (Task, error) {
 	if task.SubmittedAt.IsZero() {
 		task.SubmittedAt = time.Now().UTC()
 	}
+	task.ctx = context.WithoutCancel(ctx)
 	return task, nil
 }
 
@@ -201,7 +222,7 @@ func (d *Dispatcher) TrySubmit(ctx context.Context, task Task) error {
 	if ctx == nil {
 		return ErrNilCtx
 	}
-	task, err := prepareTask(task)
+	task, err := prepareTask(ctx, task)
 	if err != nil {
 		return err
 	}
@@ -408,7 +429,11 @@ func (d *Dispatcher) execute(task Task) {
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		logger.LogJobProcessing(d.logger, task.Name, attempt+1)
 
-		err = runJob(task.Name, task.Job, d.cfg.JobTimeout)
+		err = runJob(task.ctx, task.Name, task.Job, d.cfg.JobTimeout)
+		var panicErr *PanicError
+		if errors.As(err, &panicErr) {
+			logger.LogJobPanic(d.logger, task.Name, attempt+1, panicErr.Value, panicErr.Stack)
+		}
 		if err == nil {
 			duration := time.Since(startTime)
 			d.collector.IncProcessed()
@@ -454,12 +479,14 @@ func (d *Dispatcher) execute(task Task) {
 }
 
 // runJob executes a job with the specified timeout and recovers from any panics.
-// It creates a cancellable context, optionally bounded by timeout, and calls the
-// job's Process method. The task name is included in panic error messages.
-func runJob(name string, j job.Job, timeout time.Duration) (err error) {
-	// Always create a cancellable context so cancel is always called,
-	// regardless of whether a timeout is set.
-	ctx, cancel := context.WithCancel(context.Background())
+// It derives a cancellable context from parent (or context.Background if nil),
+// optionally bounded by timeout, and calls the job's Process method. A panic is
+// returned as a *PanicError carrying the stack trace.
+func runJob(parent context.Context, name string, j job.Job, timeout time.Duration) (err error) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 
 	if timeout > 0 {
@@ -469,7 +496,7 @@ func runJob(name string, j job.Job, timeout time.Duration) (err error) {
 
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("job %q panic: %v", name, recovered)
+			err = &PanicError{Job: name, Value: recovered, Stack: debug.Stack()}
 		}
 	}()
 
