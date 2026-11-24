@@ -1,6 +1,7 @@
 package dispatcher
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -97,5 +98,28 @@ func TestRetryDelayZeroBase(t *testing.T) {
 func TestRetryDelayUnknownStrategy(t *testing.T) {
 	if got := retryDelay(2*time.Second, 0, 0, "bogus"); got != 0 {
 		t.Errorf("expected 0 for unknown strategy, got %v", got)
+	}
+}
+
+func TestRetryDelayDoesNotOverflow(t *testing.T) {
+	base := 250 * time.Millisecond
+	strategies := []config.BackoffStrategy{config.Linear, config.Exponential, config.ExponentialJitter}
+	for _, strategy := range strategies {
+		for _, attempt := range []int{40, 63, 64, 1000, math.MaxInt32} {
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						t.Fatalf("%s attempt %d: panicked: %v", strategy, attempt, r)
+					}
+				}()
+				got := retryDelay(base, 0, attempt, strategy)
+				if got < 0 {
+					t.Errorf("%s attempt %d: negative delay %v", strategy, attempt, got)
+				}
+				if strategy != config.ExponentialJitter && got < base {
+					t.Errorf("%s attempt %d: expected delay >= base, got %v", strategy, attempt, got)
+				}
+			}()
+		}
 	}
 }

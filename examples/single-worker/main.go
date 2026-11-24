@@ -21,9 +21,9 @@ type Email struct {
 func (e Email) Process(ctx context.Context) error {
 	// Simulate email service
 	select {
-	case <- time.After(10 * time.Second):
+	case <-time.After(10 * time.Second):
 		fmt.Printf("Sending %s to %s\n", e.message, e.address)
-	case <- ctx.Done():
+	case <-ctx.Done():
 		fmt.Printf("Failed to send %s to %s: %v\n", e.message, e.address, ctx.Err())
 		return ctx.Err()
 	}
