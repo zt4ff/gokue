@@ -105,6 +105,13 @@ type Config struct {
 	//
 	// If it returns `true`, the dispatcher will attempt to retry the job
 	RetryPredicates func(error) bool
+	// OnSuccess, OnFailure and OnRetry are lifecycle hooks called synchronously
+	// on the worker goroutine. Each job outcome fires exactly one hook call:
+	// OnRetry before each retry, then OnSuccess or OnFailure once. A panicking
+	// hook is recovered. Nil hooks are skipped.
+	OnSuccess func(JobEvent)
+	OnFailure func(JobEvent)
+	OnRetry   func(JobEvent)
 	// Logger enables structured logging for the queue. When nil, logging is disabled.
 	// Use gokue.WithLogger to set it.
 	Logger logger.Logger
@@ -112,6 +119,20 @@ type Config struct {
 
 // ErrInvalidConfig is an error where config for a queue is invalid.
 var ErrInvalidConfig = errors.New("invalid queue config")
+
+// JobEvent describes a job outcome passed to lifecycle hooks.
+type JobEvent struct {
+	// Name is the job name.
+	Name string
+	// Attempt is the 1-based attempt that produced this outcome.
+	Attempt int
+	// Err is the error from the attempt; nil for OnSuccess.
+	Err error
+	// Duration is the time since the first attempt started.
+	Duration time.Duration
+	// RetryDelay is the delay before the next attempt; set only for OnRetry.
+	RetryDelay time.Duration
+}
 
 // Default returns a Config with sensible default values.
 func Default() Config {

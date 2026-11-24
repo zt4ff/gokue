@@ -400,6 +400,23 @@ err = q.Submit(ctx, job, gokue.RetryIf(func(error) bool { return true }))
 When the predicate returns `false`, the job is marked failed immediately and the
 `RetryPredicatesFailed` statistic is incremented.
 
+### Lifecycle hooks
+
+`WithOnSuccess`, `WithOnFailure` and `WithOnRetry` call a function with a
+`gokue.JobEvent` (`Name`, `Attempt`, `Err`, `Duration`, `RetryDelay`). For each
+job, `OnRetry` fires before every retry, then exactly one of `OnSuccess` or
+`OnFailure` fires. `OnFailure` covers exhausted retries, a retry predicate
+returning `false`, and retries abandoned during shutdown. Hooks run on the
+worker goroutine, so keep them fast; a panicking hook is recovered.
+
+```go
+q, err := gokue.NewQueue(
+	gokue.WithOnFailure(func(e gokue.JobEvent) {
+		log.Printf("job %s failed after %d attempts: %v", e.Name, e.Attempt, e.Err)
+	}),
+)
+```
+
 ### Graceful shutdown
 
 `Close` rejects new submissions and waits for running and queued jobs to finish,
@@ -536,6 +553,7 @@ exported fields) with `backend.ErrNoSerializableFields`.
 | `WithLogger` | `io.Writer` | disabled | Enables structured JSON logging; also returns a closer. |
 | `WithShutdownTimeout` | `time.Duration` | `10s` | Bounds `Close` when its context has no deadline. `0` waits indefinitely. |
 | `WithRetryPredicate` | `func(error) bool` | `nil` | Retry a failed job only when it returns `true`. |
+| `WithOnSuccess` / `WithOnFailure` / `WithOnRetry` | `func(gokue.JobEvent)` | `nil` | Lifecycle hooks; see [Lifecycle hooks](#lifecycle-hooks). |
 | `WithMongoDB` | `config.Config` | — | Deprecated. The MongoDB backend is not wired in yet, so `NewQueue` returns `ErrInvalidConfig`. |
 
 ### Per-submission options
