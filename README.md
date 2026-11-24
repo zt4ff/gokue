@@ -153,7 +153,7 @@ runs the worker pool and the retry loop. Most programs use `Queue`; the
 func NewQueue(options ...Option) (*Queue, error)
 func (q *Queue) Submit(ctx context.Context, task Job, opts ...SubmitOption) error
 func (q *Queue) TrySubmit(ctx context.Context, task Job, opts ...SubmitOption) error
-func (q *Queue) Run(task Job, opts ...SubmitOption)
+func (q *Queue) Run(task Job, opts ...SubmitOption) error
 func (q *Queue) Close(ctx context.Context) error
 func (q *Queue) Stats() stats.Snapshot
 ```
@@ -168,8 +168,7 @@ type Option func(*config.Config)
 ```
 
 Because `Option` is an ordinary function of the exported `Config`, any `Config`
-field can be set directly with a custom option, including fields that have no
-dedicated helper (for example `RetryPredicates`).
+field can be set directly with a custom option.
 
 ### Backends
 
@@ -279,7 +278,7 @@ if err != nil {
 ### Submitting jobs and handling a full queue
 
 `Submit` blocks until the job is enqueued or the context is done. `TrySubmit`
-never blocks and returns `dispatcher.ErrQueueFull` when the queue is at capacity.
+never blocks and returns `gokue.ErrQueueFull` when the queue is at capacity.
 When the queue is full, the `Dropped` statistic is incremented for rejected
 attempts.
 
@@ -303,7 +302,7 @@ if err := q.Submit(ctx, &BlockingJob{release: release}); err != nil {
 
 // TrySubmit returns immediately instead of blocking.
 err = q.TrySubmit(ctx, &BlockingJob{release: release})
-if errors.Is(err, dispatcher.ErrQueueFull) {
+if errors.Is(err, gokue.ErrQueueFull) {
 	fmt.Println("queue full, job not enqueued")
 } else if err != nil {
 	log.Fatal(err)
@@ -383,17 +382,18 @@ if err := q.Submit(ctx, FlakyJob{}, gokue.MaxRetries(1), gokue.RetryDelay(10*tim
 }
 ```
 
-To stop retrying for specific errors, set a retry predicate with a custom option:
+To stop retrying for specific errors, set a retry predicate. `RetryIf`
+overrides it for a single submission:
 
 ```go
-q, err := gokue.NewQueue(func(c *config.Config) {
-	c.RetryPredicates = func(err error) bool {
-		return errors.Is(err, errTemporary)
-	}
-})
+q, err := gokue.NewQueue(gokue.WithRetryPredicate(func(err error) bool {
+	return errors.Is(err, errTemporary)
+}))
 if err != nil {
 	log.Fatal(err)
 }
+
+err = q.Submit(ctx, job, gokue.RetryIf(func(error) bool { return true }))
 ```
 
 When the predicate returns `false`, the job is marked failed immediately and the
@@ -420,7 +420,7 @@ if err := q.Close(ctx); err != nil {
 
 If the close context ends first, jobs still waiting in the queue are dropped
 (counted in `Dropped`) and pending retries are abandoned. A `Submit` blocked on a
-full queue is released with `dispatcher.ErrClosed` as soon as `Close` is called.
+full queue is released with `gokue.ErrClosed` as soon as `Close` is called.
 
 For an immediate return that does not wait for workers, the dispatcher exposes:
 
@@ -434,9 +434,9 @@ Errors from the queue are compared with `errors.Is`.
 
 ```go
 switch {
-case errors.Is(err, dispatcher.ErrClosed):
+case errors.Is(err, gokue.ErrClosed):
 	// The queue has been closed.
-case errors.Is(err, dispatcher.ErrQueueFull):
+case errors.Is(err, gokue.ErrQueueFull):
 	// TrySubmit found the queue at capacity.
 case errors.Is(err, context.Canceled):
 	// The submit context was cancelled while waiting.
@@ -532,8 +532,9 @@ exported fields) with `backend.ErrNoSerializableFields`.
 | `WithMaxRetryDelay` | `time.Duration` | `30s` | Cap for exponential backoff. `<= 0` means no cap. |
 | `WithBackoffStrategy` | `config.BackoffStrategy` | `Exponential` | One of `Constant`, `Linear`, `Exponential`, `ExponentialJitter`. |
 | `WithLogger` | `io.Writer` | disabled | Enables structured JSON logging; also returns a closer. |
-| `WithShutdownTimeout` | `time.Duration` | `10s` | Sets `Config.ShutdownTimeout`. Validated but not currently consumed by `Close`. |
-| `WithMongoDB` | `config.Config` | — | Sets `Config.MemoryType` to `mongo-db`. Has no effect on the running queue. |
+| `WithShutdownTimeout` | `time.Duration` | `10s` | Bounds `Close` when its context has no deadline. `0` waits indefinitely. |
+| `WithRetryPredicate` | `func(error) bool` | `nil` | Retry a failed job only when it returns `true`. |
+| `WithMongoDB` | `config.Config` | — | Deprecated. The MongoDB backend is not wired in yet, so `NewQueue` returns `ErrInvalidConfig`. |
 
 ### Per-submission options
 
@@ -541,15 +542,16 @@ exported fields) with `backend.ErrNoSerializableFields`.
 | --- | --- | --- |
 | `MaxRetries` | `int` | Overrides the queue-level `MaxRetries` for this job. Must be `>= 0`. |
 | `RetryDelay` | `time.Duration` | Overrides the queue-level `RetryDelay` for this job. Must be `>= 0`. |
+| `RetryIf` | `func(error) bool` | Overrides the queue-level retry predicate for this job. |
 
 Invalid per-submission values make `Submit`/`TrySubmit` return a wrapped
-`dispatcher.ErrInvalidTask`.
+`ErrInvalidTask`.
 
 ### `config.Config` fields
 
 | Field | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `MemoryType` | `config.MemoryType` | `config.InMemory` | `InMemory` or `MongoDB`; only `InMemory` is implemented. |
+| `MemoryType` | `config.MemoryType` | `config.InMemory` | Only `InMemory` is supported; `MongoDB` is rejected until implemented. |
 | `WorkerCount` | `int` | `GOMAXPROCS(0)` | Must be `> 0`. |
 | `QueueSize` | `int` | `1024` | Must be `> 0`. |
 | `MaxRetries` | `int` | `3` | Must be `>= 0`. |
@@ -557,9 +559,9 @@ Invalid per-submission values make `Submit`/`TrySubmit` return a wrapped
 | `RetryDelay` | `time.Duration` | `250ms` | Must be `>= 0`. |
 | `MaxRetryDelay` | `time.Duration` | `30s` | Must be `>= 0`. |
 | `BackoffStrategy` | `config.BackoffStrategy` | `Exponential` | Must be a known strategy. |
-| `ShutdownTimeout` | `time.Duration` | `10s` | Validated but not currently used. |
-| `RetryPredicates` | `func(error) bool` | `nil` | Set via a custom option; `true` retries. |
-| `Logger` | `logger.Logger` | `nil` | Internal type; set with `WithLogger`. |
+| `ShutdownTimeout` | `time.Duration` | `10s` | Bounds `Close` when its context has no deadline. |
+| `RetryPredicates` | `func(error) bool` | `nil` | Set with `WithRetryPredicate`; `true` retries. |
+| `Logger` | `gokue.Logger` | `nil` | Set with `WithLogger` or `NewQueueWithLogger`. |
 
 `NewQueue` validates the configuration and returns `config.ErrInvalidConfig`
 (wrapped) when a field is out of range or unknown.
@@ -568,9 +570,7 @@ Invalid per-submission values make `Submit`/`TrySubmit` return a wrapped
 
 | Package | Error | Returned when |
 | --- | --- | --- |
-| `gokue` | `"queue is nil"` | A method is called on a nil `*Queue`. Not an exported sentinel. |
-| `gokue` | `"job cannot be nil"` | `Submit`/`TrySubmit` receives a nil job. Not an exported sentinel. |
-| `gokue` | `"context cannot be nil"` | A nil context is passed. Not an exported sentinel. |
+| `gokue` | `ErrNilQueue`, `ErrClosed`, `ErrQueueFull`, `ErrNilJob`, `ErrNilCtx`, `ErrInvalidTask`, `ErrInvalidConfig` | Returned by `Queue` methods and `NewQueue`; aliases of the `dispatcher`/`config` sentinels below, so `errors.Is` works with either. |
 | `dispatcher` | `ErrClosed` | Submitting after the queue is closed. |
 | `dispatcher` | `ErrQueueFull` | `TrySubmit` when the queue is at capacity. |
 | `dispatcher` | `ErrNilJob` | Nil job at the dispatcher level. |
@@ -640,13 +640,8 @@ Not yet available (see [`ROADMAP.md`](ROADMAP.md)):
 
 Known gaps in the current API:
 
-- `WithMongoDB` and `config.MongoDB` are accepted by validation but have no
-  effect; the queue always uses the in-memory channel.
-- `WithShutdownTimeout` (and `Config.ShutdownTimeout`) is validated but not used;
-  `Close` relies on the caller's context.
-- `RetryPredicates` has no dedicated helper option; set it with a custom option.
-- `NewQueueWithLogger` takes a `logger.Logger` from an `internal` package, so
-  external callers cannot supply a custom logger; use `WithLogger`.
+- The MongoDB backend exists as a standalone `backend.JobStore` but is not wired
+  into `Queue`; `WithMongoDB` is rejected by `NewQueue` until it is.
 
 ## Contributing
 
