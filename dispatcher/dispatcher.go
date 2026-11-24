@@ -10,6 +10,7 @@ import (
 	"math/rand"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/zt4ff/gokue/config"
@@ -102,6 +103,10 @@ type Dispatcher struct {
 	cfg config.Config
 	// collector tracks execution statistics.
 	collector *stats.Collector
+	// running is the number of tasks currently executing (live gauge).
+	running atomic.Int64
+	// liveWorkers is the number of worker goroutines still running (live gauge).
+	liveWorkers atomic.Int64
 	// logger provides structured logging for observability.
 	logger logger.Logger
 	// tasks is the channel for submitting tasks to workers.
@@ -151,6 +156,7 @@ func NewDispatcher(cfg config.Config, collector *stats.Collector) *Dispatcher {
 
 	for worker := 0; worker < cfg.WorkerCount; worker++ {
 		d.wg.Add(1)
+		d.liveWorkers.Add(1)
 		go d.worker()
 	}
 
@@ -365,8 +371,16 @@ func (d *Dispatcher) CloseWithMode(ctx context.Context, mode ShutdownMode) error
 }
 
 // Stats returns a snapshot of the current execution statistics.
+// The live gauges QueueDepth, Running and IdleWorkers reflect the moment of the call.
 func (d *Dispatcher) Stats() stats.Snapshot {
-	return d.collector.Snapshot()
+	s := d.collector.Snapshot()
+	running := d.running.Load()
+	s.QueueDepth = len(d.tasks)
+	s.Running = int(running)
+	if idle := d.liveWorkers.Load() - running; idle > 0 {
+		s.IdleWorkers = int(idle)
+	}
+	return s
 }
 
 // worker processes tasks from the dispatcher's queue until it is closed.
@@ -374,6 +388,7 @@ func (d *Dispatcher) Stats() stats.Snapshot {
 // of executed.
 func (d *Dispatcher) worker() {
 	defer d.wg.Done()
+	defer d.liveWorkers.Add(-1)
 
 	for task := range d.tasks {
 		select {
@@ -383,7 +398,9 @@ func (d *Dispatcher) worker() {
 			continue
 		default:
 		}
+		d.running.Add(1)
 		d.safeExecute(task)
+		d.running.Add(-1)
 	}
 }
 

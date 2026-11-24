@@ -383,7 +383,13 @@ func (q *Queue) Close(ctx context.Context) error {
 
 // Stats returns a snapshot of the current execution statistics.
 func (q *Queue) Stats() stats.Snapshot {
-	if q == nil || q.collector == nil {
+	if q == nil {
+		return stats.Snapshot{}
+	}
+	if q.dispatcher != nil {
+		return q.dispatcher.Stats()
+	}
+	if q.collector == nil {
 		return stats.Snapshot{}
 	}
 	return q.collector.Snapshot()
