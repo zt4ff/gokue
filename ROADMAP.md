@@ -1,5 +1,10 @@
 # gokue — Development Plan & Issues
 
+> Historical planning notes. Current work is tracked as
+> [GitHub issues](https://github.com/zt4ff/gokue/issues) grouped by
+> [milestone](https://github.com/zt4ff/gokue/milestones); those take precedence
+> over this file.
+
 
 ## Phase 2
 
@@ -183,14 +188,6 @@
   - No failures, races, or hangs in benchmarks
 
 ## Additional / Cross-Cutting Issues
-
-### 23. [`bug`, `good-first-issue`] Fix Dispatcher Test File Name
-
-- **Issue Title:** Fix typo in dispatcher test filename
-- **Labels:** `bug`, `good-first-issue`
-- **Description:** The dispatcher test file is named `dispatcjer_test.go` (missing the "e" in "dispatcher"). While Go doesn't require specific filenames, this is a typo that should be fixed for consistency.
-- **Acceptance Criteria:**
-  - File renamed, all tests still pass
 
 ### 24. [`ops`, `enhancement`] CI and Release Automation
 
