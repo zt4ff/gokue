@@ -17,6 +17,10 @@ import (
 // Job is a task that can be executed by the queue.
 type Job = jobpkg.Job
 
+// PanicError is the error recorded when a job panics. Use errors.As to get the
+// panic value and stack trace.
+type PanicError = dispatcher.PanicError
+
 // Logger is the structured logging interface accepted by NewQueueWithLogger.
 // Implement it to route queue events to your own logging system.
 type Logger = logger.Logger

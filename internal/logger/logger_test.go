@@ -95,7 +95,7 @@ func TestLogHelperFunctionsWithNilLogger(t *testing.T) {
 	LogJobAbandoned(logger, "job-name", 1, ReasonDispatcherShutdown, 0)
 	LogCloseStart(logger, "drain")
 	LogCloseComplete(logger, "drain", 0, nil)
-	LogJobPanic(logger, "job-name", "something")
+	LogJobPanic(logger, "job-name", 1, "something", []byte("stack"))
 	LogWorkerPanic(logger, "panic value")
 }
 

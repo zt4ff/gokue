@@ -55,6 +55,8 @@ const (
 	FieldReason Field = "reason"
 	// FieldPanic is the recovered panic value.
 	FieldPanic Field = "panic"
+	// FieldStack is the goroutine stack trace captured at a panic.
+	FieldStack Field = "stack"
 )
 
 // Status is the value of a status field.
@@ -193,13 +195,15 @@ func LogCloseComplete(logger Logger, mode string, duration time.Duration, err er
 }
 
 // LogJobPanic logs a panic that occurred during job execution.
-func LogJobPanic(logger Logger, jobName string, recovered interface{}) {
+func LogJobPanic(logger Logger, jobName string, attempt int, recovered interface{}, stack []byte) {
 	if logger == nil {
 		return
 	}
 	logger.Error(string(EventJobPanic),
 		string(FieldJobName), jobName,
-		string(FieldPanic), fmt.Sprintf("%v", recovered))
+		string(FieldAttempt), attempt,
+		string(FieldPanic), fmt.Sprintf("%v", recovered),
+		string(FieldStack), string(stack))
 }
 
 // LogWorkerPanic logs a panic in the dispatcher worker itself.
