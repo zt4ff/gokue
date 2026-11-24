@@ -2,6 +2,8 @@ package dispatcher_test
 
 import (
 	"context"
+	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -50,5 +52,40 @@ func TestStatsLiveGauges(t *testing.T) {
 	}
 	if s := d.Stats(); s.IdleWorkers != 0 || s.Running != 0 || s.QueueDepth != 0 {
 		t.Fatalf("gauges after Close = %+v", s)
+	}
+}
+
+func TestZeroDelayRetryAbandonedAfterCloseTimeout(t *testing.T) {
+	cfg := config.Default()
+	cfg.WorkerCount = 1
+	cfg.MaxRetries = 1
+	cfg.RetryDelay = 0
+	d := dispatcher.NewDispatcher(cfg, stats.NewCollector())
+
+	var attempts atomic.Int32
+	started := make(chan struct{})
+	release := make(chan struct{})
+	job := jobFunc(func(context.Context) error {
+		if attempts.Add(1) == 1 {
+			close(started)
+			<-release
+		}
+		return errors.New("fail")
+	})
+	if err := d.Submit(context.Background(), dispatcher.Task{Name: "zero-delay", Job: job}); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if err := d.Close(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Close = %v, want deadline exceeded", err)
+	}
+	close(release)
+
+	mustWait(t, func() bool { return d.Stats().Failed == 1 })
+	if n := attempts.Load(); n != 1 {
+		t.Fatalf("attempts = %d, want 1 (retry should be abandoned)", n)
 	}
 }

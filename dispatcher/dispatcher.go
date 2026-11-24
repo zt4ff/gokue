@@ -477,18 +477,13 @@ func (d *Dispatcher) execute(task Task) {
 			logger.LogJobRetry(d.logger, task.Name, attempt+1, err, delay)
 			d.callHook(d.cfg.OnRetry, config.JobEvent{Name: task.Name, Attempt: attempt + 1, Err: err, Duration: time.Since(startTime), RetryDelay: delay})
 
-			if delay > 0 {
-				select {
-				case <-time.After(delay):
-					// delay elapsed, continue to next attempt
-				case <-d.quit:
-					// dispatcher is shutting down; abandon remaining retries
-					d.collector.IncFailed()
-					duration := time.Since(startTime)
-					logger.LogJobAbandoned(d.logger, task.Name, attempt+1, logger.ReasonDispatcherShutdown, duration)
-					d.callHook(d.cfg.OnFailure, config.JobEvent{Name: task.Name, Attempt: attempt + 1, Err: err, Duration: duration})
-					return
-				}
+			if d.shutdownBeforeRetry(delay) {
+				// dispatcher is shutting down; abandon remaining retries
+				d.collector.IncFailed()
+				duration := time.Since(startTime)
+				logger.LogJobAbandoned(d.logger, task.Name, attempt+1, logger.ReasonDispatcherShutdown, duration)
+				d.callHook(d.cfg.OnFailure, config.JobEvent{Name: task.Name, Attempt: attempt + 1, Err: err, Duration: duration})
+				return
 			}
 		}
 	}
@@ -498,6 +493,28 @@ func (d *Dispatcher) execute(task Task) {
 	d.collector.IncFailed()
 	logger.LogJobFailure(d.logger, task.Name, maxRetries+1, err, duration)
 	d.callHook(d.cfg.OnFailure, config.JobEvent{Name: task.Name, Attempt: maxRetries + 1, Err: err, Duration: duration})
+}
+
+// shutdownBeforeRetry waits delay before the next retry and reports whether
+// the dispatcher began shutting down first. Shutdown is checked even when
+// delay is zero.
+func (d *Dispatcher) shutdownBeforeRetry(delay time.Duration) bool {
+	select {
+	case <-d.quit:
+		return true
+	default:
+	}
+	if delay <= 0 {
+		return false
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return false
+	case <-d.quit:
+		return true
+	}
 }
 
 // callHook invokes a lifecycle hook, recovering from panics so a faulty hook
