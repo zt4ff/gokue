@@ -165,7 +165,7 @@ func (s *MongoJobStore) Claim(ctx context.Context) (backend.JobRecord, error) {
 		"$inc": bson.M{"version": 1, "attempts": 1},
 	}
 	opts := options.FindOneAndUpdate().
-		SetSort(bson.D{{Key: "created_at", Value: 1}}).
+		SetSort(bson.D{{Key: "created_at", Value: 1}, {Key: "_id", Value: 1}}).
 		SetReturnDocument(options.After)
 
 	var doc jobDocument

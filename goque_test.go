@@ -219,10 +219,12 @@ func TestTrySubmitQueueFull(t *testing.T) {
 	blockingJob := make(chan struct{})
 	blockingTask := &blockingJobImpl{blockChan: blockingJob}
 
-	// Submit the blocking job to fill the queue
-	err = queue.Submit(ctx, blockingTask)
-	if err != nil {
-		t.Fatalf("first submit failed: %v", err)
+	// The first blocking job occupies the single worker; the second Submit only
+	// returns once the worker has dequeued the first, so it then fills the queue.
+	for i := 0; i < 2; i++ {
+		if err := queue.Submit(ctx, blockingTask); err != nil {
+			t.Fatalf("submit %d failed: %v", i+1, err)
+		}
 	}
 
 	// Now try to submit another job without blocking - should fail

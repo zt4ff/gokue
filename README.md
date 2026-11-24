@@ -418,6 +418,10 @@ if err := q.Close(ctx); err != nil {
 }
 ```
 
+If the close context ends first, jobs still waiting in the queue are dropped
+(counted in `Dropped`) and pending retries are abandoned. A `Submit` blocked on a
+full queue is released with `dispatcher.ErrClosed` as soon as `Close` is called.
+
 For an immediate return that does not wait for workers, the dispatcher exposes:
 
 ```go
@@ -535,8 +539,11 @@ exported fields) with `backend.ErrNoSerializableFields`.
 
 | Option | Argument | Description |
 | --- | --- | --- |
-| `MaxRetries` | `int` | Overrides the queue-level `MaxRetries` for this job. |
-| `RetryDelay` | `time.Duration` | Overrides the queue-level `RetryDelay` for this job. |
+| `MaxRetries` | `int` | Overrides the queue-level `MaxRetries` for this job. Must be `>= 0`. |
+| `RetryDelay` | `time.Duration` | Overrides the queue-level `RetryDelay` for this job. Must be `>= 0`. |
+
+Invalid per-submission values make `Submit`/`TrySubmit` return a wrapped
+`dispatcher.ErrInvalidTask`.
 
 ### `config.Config` fields
 
@@ -569,6 +576,7 @@ exported fields) with `backend.ErrNoSerializableFields`.
 | `dispatcher` | `ErrNilJob` | Nil job at the dispatcher level. |
 | `dispatcher` | `ErrNilCtx` | Nil context at the dispatcher level. |
 | `dispatcher` | `ErrInvalidShutdownMode` | `CloseWithMode` receives an unknown mode. |
+| `dispatcher` | `ErrInvalidTask` | A per-submission override is out of range (e.g. negative `MaxRetries`). |
 | `config` | `ErrInvalidConfig` | `NewQueue` receives invalid configuration. |
 | `context` | `Canceled` / `DeadlineExceeded` | A submit or close context ends before the operation completes. |
 | `backend` | `ErrNotFound`, `ErrAlreadyExists`, `ErrConflict`, `ErrStoreClosed`, `ErrNilStore`, `ErrNotConnected` | Storage operations; see the package docs. |
@@ -593,7 +601,8 @@ exported fields) with `backend.ErrNoSerializableFields`.
   `Dropped`.
 - **Panics:** a panic in a job's `Process` is recovered and reported as an error,
   which then goes through the normal retry and failure path. Panics inside
-  dispatcher internals are recovered per worker so the process does not crash.
+  dispatcher internals are recovered per job, so the process does not crash and
+  the worker keeps serving the queue.
 - **Shutdown:** in drain mode, `Close` waits for all jobs, including retries and
   their delays. If the close context ends first, it returns the context error and
   interrupts pending retry sleeps, but workers may still be finishing; do not tear

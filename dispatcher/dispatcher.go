@@ -24,8 +24,9 @@ const (
 	DrainMode = "drain"
 
 	// ImmediateMode stops accepting new jobs and returns without waiting for
-	// in-flight jobs to complete. Workers will continue running in the background
-	// until they finish their current tasks. Use only for emergency shutdown.
+	// in-flight jobs to complete. Workers finish their current attempt in the
+	// background; jobs still waiting in the queue are dropped and counted in
+	// the Dropped statistic. Use only for emergency shutdown.
 	ImmediateMode = "immediate"
 )
 
@@ -40,6 +41,8 @@ var (
 	ErrNilCtx = errors.New("context cannot be nil")
 	// ErrInvalidShutdownMode is returned when an unknown shutdown mode is provided.
 	ErrInvalidShutdownMode = errors.New("invalid shutdown mode")
+	// ErrInvalidTask is returned when a task carries an invalid per-task override.
+	ErrInvalidTask = errors.New("invalid task")
 )
 
 // Task represents a unit of work to be processed by the dispatcher.
@@ -86,6 +89,11 @@ type Dispatcher struct {
 	quit chan struct{}
 	// quitOnce ensures quit is closed exactly once across multiple Close calls and modes.
 	quitOnce sync.Once
+	// closing is closed as soon as Close is called so that submitters blocked on a
+	// full queue are released before Close acquires submitMu.
+	closing chan struct{}
+	// closingOnce ensures closing is closed exactly once.
+	closingOnce sync.Once
 
 	// submitMu protects the closed flag.
 	submitMu sync.RWMutex
@@ -117,6 +125,7 @@ func NewDispatcher(cfg config.Config, collector *stats.Collector) *Dispatcher {
 		logger:    cfg.Logger,
 		tasks:     make(chan Task, cfg.QueueSize),
 		quit:      make(chan struct{}),
+		closing:   make(chan struct{}),
 	}
 
 	for worker := 0; worker < cfg.WorkerCount; worker++ {
@@ -134,14 +143,9 @@ func (d *Dispatcher) Submit(ctx context.Context, task Task) error {
 	if ctx == nil {
 		return ErrNilCtx
 	}
-	if task.Job == nil {
-		return ErrNilJob
-	}
-	if task.Name == "" {
-		task.Name = job.NameOf(task.Job)
-	}
-	if task.SubmittedAt.IsZero() {
-		task.SubmittedAt = time.Now().UTC()
+	task, err := prepareTask(task)
+	if err != nil {
+		return err
 	}
 
 	d.submitMu.RLock()
@@ -161,7 +165,30 @@ func (d *Dispatcher) Submit(ctx context.Context, task Task) error {
 		d.collector.IncDropped()
 		logger.LogSubmitRejected(d.logger, task.Name, logger.ReasonContextCancelled)
 		return ctx.Err()
+	case <-d.closing:
+		logger.LogSubmitRejected(d.logger, task.Name, logger.ReasonDispatcherClosed)
+		return ErrClosed
 	}
+}
+
+// prepareTask validates task and fills in its derived defaults.
+func prepareTask(task Task) (Task, error) {
+	if task.Job == nil {
+		return task, ErrNilJob
+	}
+	if task.MaxRetries != nil && *task.MaxRetries < 0 {
+		return task, fmt.Errorf("%w: max retries cannot be negative", ErrInvalidTask)
+	}
+	if task.RetryDelay != nil && *task.RetryDelay < 0 {
+		return task, fmt.Errorf("%w: retry delay cannot be negative", ErrInvalidTask)
+	}
+	if task.Name == "" {
+		task.Name = job.NameOf(task.Job)
+	}
+	if task.SubmittedAt.IsZero() {
+		task.SubmittedAt = time.Now().UTC()
+	}
+	return task, nil
 }
 
 // TrySubmit attempts to add a task to the dispatcher's queue without blocking.
@@ -171,14 +198,9 @@ func (d *Dispatcher) TrySubmit(ctx context.Context, task Task) error {
 	if ctx == nil {
 		return ErrNilCtx
 	}
-	if task.Job == nil {
-		return ErrNilJob
-	}
-	if task.Name == "" {
-		task.Name = job.NameOf(task.Job)
-	}
-	if task.SubmittedAt.IsZero() {
-		task.SubmittedAt = time.Now().UTC()
+	task, err := prepareTask(task)
+	if err != nil {
+		return err
 	}
 
 	d.submitMu.RLock()
@@ -212,8 +234,9 @@ func (d *Dispatcher) TrySubmit(ctx context.Context, task Task) error {
 //     including any in-flight retries and their backoff delays.
 //   - Returns nil if all workers complete before context cancellation.
 //   - Returns ctx.Err() if context is cancelled during the wait. On cancellation
-//     the quit channel is closed so workers abandon remaining retry sleeps and
-//     can exit promptly; workers may still be running when Close returns.
+//     the quit channel is closed so workers abandon remaining retry sleeps, drop
+//     jobs still waiting in the queue, and can exit promptly; workers may still
+//     be finishing their current attempt when Close returns.
 //
 // Important: If ctx is cancelled before workers finish, Close returns ctx.Err()
 // but workers continue running in the background until they complete. Callers
@@ -235,7 +258,7 @@ func (d *Dispatcher) Close(ctx context.Context) error {
 //     abandon remaining retries and exit.
 //   - ImmediateMode: Returns immediately without waiting for workers to complete.
 //     Retry sleeps are interrupted so workers finish their current attempt and
-//     stop instead of continuing to retry.
+//     stop instead of continuing to retry. Queued jobs are dropped.
 //
 // Behavior (both modes):
 //   - Rejects new submissions with ErrClosed.
@@ -272,6 +295,12 @@ func (d *Dispatcher) CloseWithMode(ctx context.Context, mode string) error {
 
 	startTime := time.Now()
 	logger.LogCloseStart(d.logger, mode)
+
+	// Release submitters blocked on a full queue before taking the write lock;
+	// otherwise Close would wait on them regardless of ctx.
+	d.closingOnce.Do(func() {
+		close(d.closing)
+	})
 
 	d.submitMu.Lock()
 	if !d.closed {
@@ -317,21 +346,33 @@ func (d *Dispatcher) Stats() stats.Snapshot {
 }
 
 // worker processes tasks from the dispatcher's queue until it is closed.
-// It continuously calls execute on each received task and recovers from any panics
-// in the dispatcher's own logic to avoid crashing the entire program.
+// Once quit is signalled, tasks still waiting in the queue are dropped instead
+// of executed.
 func (d *Dispatcher) worker() {
 	defer d.wg.Done()
+
+	for task := range d.tasks {
+		select {
+		case <-d.quit:
+			d.collector.IncDropped()
+			logger.LogJobAbandoned(d.logger, task.Name, 0, logger.ReasonDispatcherShutdown, 0)
+			continue
+		default:
+		}
+		d.safeExecute(task)
+	}
+}
+
+// safeExecute runs execute and recovers from panics in the dispatcher's own
+// logic (not the job, which runJob already guards) so that the worker keeps
+// serving the queue instead of silently shrinking the pool.
+func (d *Dispatcher) safeExecute(task Task) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			// A panic in the dispatcher itself (not the job) is a programming error.
-			// Log it and let this worker die gracefully rather than crashing the program.
 			logger.LogWorkerPanic(d.logger, recovered)
 		}
 	}()
-
-	for task := range d.tasks {
-		d.execute(task)
-	}
+	d.execute(task)
 }
 
 // execute runs a task with retry logic based on the dispatcher's configuration.
@@ -453,23 +494,16 @@ func retryDelay(base time.Duration, maxDelay time.Duration, attempt int, strateg
 
 	case config.Linear:
 		// attempt is 0-indexed; use attempt+1 so the first retry is never 0.
-		return base * time.Duration(attempt+1)
+		return saturatingDuration(float64(base) * float64(attempt+1))
 
 	case config.Exponential:
 		// base * 2^attempt: 1x, 2x, 4x, 8x, ..., capped at maxDelay.
-		exp := float64(base) * math.Pow(2, float64(attempt))
-		if maxDelay > 0 && exp > float64(maxDelay) {
-			exp = float64(maxDelay)
-		}
-		return time.Duration(exp)
+		return cappedExponential(base, maxDelay, attempt)
 
 	case config.ExponentialJitter:
 		// Full jitter: random delay uniformly drawn from [0, capped_exp) so it
 		// scales with the exponential component and spreads retries under load.
-		exp := float64(base) * math.Pow(2, float64(attempt))
-		if maxDelay > 0 && exp > float64(maxDelay) {
-			exp = float64(maxDelay)
-		}
+		exp := cappedExponential(base, maxDelay, attempt)
 		if exp <= 0 {
 			return 0
 		}
@@ -478,4 +512,23 @@ func retryDelay(base time.Duration, maxDelay time.Duration, attempt int, strateg
 	default:
 		return 0
 	}
+}
+
+// cappedExponential returns base * 2^attempt, capped at maxDelay when
+// maxDelay > 0 and saturated at the largest representable time.Duration.
+func cappedExponential(base, maxDelay time.Duration, attempt int) time.Duration {
+	exp := float64(base) * math.Pow(2, float64(attempt))
+	if maxDelay > 0 && exp > float64(maxDelay) {
+		return maxDelay
+	}
+	return saturatingDuration(exp)
+}
+
+// saturatingDuration converts d to a time.Duration, clamping values that would
+// overflow int64 instead of wrapping to a negative duration.
+func saturatingDuration(d float64) time.Duration {
+	if d >= math.MaxInt64 {
+		return time.Duration(math.MaxInt64)
+	}
+	return time.Duration(d)
 }
