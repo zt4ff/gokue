@@ -123,3 +123,15 @@ func TestRetryDelayDoesNotOverflow(t *testing.T) {
 		}
 	}
 }
+
+func TestRetryDelayCapsAllStrategies(t *testing.T) {
+	maxDelay := 3 * time.Second
+	for _, s := range []config.BackoffStrategy{config.Constant, config.Linear, config.Exponential, config.ExponentialJitter} {
+		if got := retryDelay(5*time.Second, maxDelay, 10, s); got > maxDelay {
+			t.Errorf("%s: delay %v exceeds max %v", s, got, maxDelay)
+		}
+	}
+	if got := retryDelay(time.Second, maxDelay, 1, config.Linear); got != 2*time.Second {
+		t.Errorf("linear below cap: expected 2s, got %v", got)
+	}
+}

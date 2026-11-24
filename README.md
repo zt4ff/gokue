@@ -356,8 +356,9 @@ slow cancelled: context deadline exceeded
 
 A job is attempted once plus up to `MaxRetries` additional times. The delay
 between attempts depends on `BackoffStrategy` and `RetryDelay`, optionally capped
-by `MaxRetryDelay`. `MaxRetries` and `RetryDelay` can be overridden per
-submission.
+by `MaxRetryDelay` (the cap applies to every strategy). `MaxRetries` and
+`RetryDelay` can be overridden per submission. A retry predicate is only
+consulted when another retry remains.
 
 ```go
 q, err := gokue.NewQueue(
@@ -422,7 +423,8 @@ If the close context ends first, jobs still waiting in the queue are dropped
 (counted in `Dropped`) and pending retries are abandoned. A `Submit` blocked on a
 full queue is released with `dispatcher.ErrClosed` as soon as `Close` is called.
 
-For an immediate return that does not wait for workers, the dispatcher exposes:
+For an immediate return that does not wait for workers, the dispatcher exposes
+`CloseWithMode`, which takes a typed `dispatcher.ShutdownMode`:
 
 ```go
 d.CloseWithMode(context.Background(), dispatcher.ImmediateMode)
@@ -529,7 +531,7 @@ exported fields) with `backend.ErrNoSerializableFields`.
 | `WithMaxRetries` | `int` | `3` | Retries after the first attempt. Must be `>= 0`. |
 | `WithJobTimeout` | `time.Duration` | `30s` | Per-attempt timeout. `0` disables it. Must be `>= 0`. |
 | `WithRetryDelay` | `time.Duration` | `250ms` | Base delay between retries. Must be `>= 0`. |
-| `WithMaxRetryDelay` | `time.Duration` | `30s` | Cap for exponential backoff. `<= 0` means no cap. |
+| `WithMaxRetryDelay` | `time.Duration` | `30s` | Cap for every backoff strategy. `<= 0` means no cap. |
 | `WithBackoffStrategy` | `config.BackoffStrategy` | `Exponential` | One of `Constant`, `Linear`, `Exponential`, `ExponentialJitter`. |
 | `WithLogger` | `io.Writer` | disabled | Enables structured JSON logging; also returns a closer. |
 | `WithShutdownTimeout` | `time.Duration` | `10s` | Sets `Config.ShutdownTimeout`. Validated but not currently consumed by `Close`. |

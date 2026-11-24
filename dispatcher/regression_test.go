@@ -174,3 +174,36 @@ func (j *countingJob) Process(context.Context) error {
 	j.ran.Add(1)
 	return nil
 }
+
+// TestRetryPredicateNotConsultedOnFinalAttempt verifies the predicate is skipped
+// when no retry remains, so RetryPredicatesFailed only counts blocked retries.
+func TestRetryPredicateNotConsultedOnFinalAttempt(t *testing.T) {
+	var calls atomic.Int32
+	cfg := config.Default()
+	cfg.WorkerCount = 1
+	cfg.MaxRetries = 0
+	cfg.RetryDelay = 0
+	cfg.RetryPredicates = func(error) bool {
+		calls.Add(1)
+		return false
+	}
+	d := dispatcher.NewDispatcher(cfg, nil)
+	if err := d.Submit(context.Background(), dispatcher.Task{
+		Job: jobFunc(func(context.Context) error { return errors.New("boom") }),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("predicate called %d times with no retries left", calls.Load())
+	}
+	if s := d.Stats(); s.RetryPredicatesFailed != 0 || s.Failed != 1 {
+		t.Fatalf("unexpected stats %+v", s)
+	}
+}
+
+type jobFunc func(context.Context) error
+
+func (f jobFunc) Process(ctx context.Context) error { return f(ctx) }

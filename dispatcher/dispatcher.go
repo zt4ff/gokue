@@ -17,17 +17,20 @@ import (
 	"github.com/zt4ff/gokue/stats"
 )
 
+// ShutdownMode selects how CloseWithMode shuts the dispatcher down.
+type ShutdownMode string
+
 const (
 	// DrainMode waits for all in-flight and queued jobs to complete before returning.
 	// New submissions are rejected immediately upon Close call.
 	// This is the recommended mode for graceful shutdown scenarios.
-	DrainMode = "drain"
+	DrainMode ShutdownMode = "drain"
 
 	// ImmediateMode stops accepting new jobs and returns without waiting for
 	// in-flight jobs to complete. Workers finish their current attempt in the
 	// background; jobs still waiting in the queue are dropped and counted in
 	// the Dropped statistic. Use only for emergency shutdown.
-	ImmediateMode = "immediate"
+	ImmediateMode ShutdownMode = "immediate"
 )
 
 var (
@@ -283,7 +286,7 @@ func (d *Dispatcher) Close(ctx context.Context) error {
 //	    // Attempt immediate shutdown
 //	    d.CloseWithMode(context.Background(), ImmediateMode)
 //	}
-func (d *Dispatcher) CloseWithMode(ctx context.Context, mode string) error {
+func (d *Dispatcher) CloseWithMode(ctx context.Context, mode ShutdownMode) error {
 	if ctx == nil {
 		return ErrNilCtx
 	}
@@ -294,7 +297,7 @@ func (d *Dispatcher) CloseWithMode(ctx context.Context, mode string) error {
 	}
 
 	startTime := time.Now()
-	logger.LogCloseStart(d.logger, mode)
+	logger.LogCloseStart(d.logger, string(mode))
 
 	// Release submitters blocked on a full queue before taking the write lock;
 	// otherwise Close would wait on them regardless of ctx.
@@ -313,7 +316,7 @@ func (d *Dispatcher) CloseWithMode(ctx context.Context, mode string) error {
 	if mode == ImmediateMode {
 		d.signalQuit()
 		duration := time.Since(startTime)
-		logger.LogCloseComplete(d.logger, mode, duration, nil)
+		logger.LogCloseComplete(d.logger, string(mode), duration, nil)
 		return nil
 	}
 
@@ -328,14 +331,14 @@ func (d *Dispatcher) CloseWithMode(ctx context.Context, mode string) error {
 	select {
 	case <-done:
 		duration := time.Since(startTime)
-		logger.LogCloseComplete(d.logger, mode, duration, nil)
+		logger.LogCloseComplete(d.logger, string(mode), duration, nil)
 		return nil
 	case <-ctx.Done():
 		// Interrupt in-flight retry sleeps so workers can abandon remaining
 		// retries and exit instead of running out the full backoff schedule.
 		d.signalQuit()
 		duration := time.Since(startTime)
-		logger.LogCloseComplete(d.logger, mode, duration, ctx.Err())
+		logger.LogCloseComplete(d.logger, string(mode), duration, ctx.Err())
 		return ctx.Err()
 	}
 }
@@ -413,7 +416,9 @@ func (d *Dispatcher) execute(task Task) {
 			return
 		}
 
-		if retryPredicates != nil && !retryPredicates(err) {
+		// The predicate only decides whether to retry, so skip it when no
+		// retry remains.
+		if attempt < maxRetries && retryPredicates != nil && !retryPredicates(err) {
 			// retry predicate blocked retries; mark final failure immediately
 			duration := time.Since(startTime)
 			d.collector.IncRetryPredicatesFailed()
@@ -472,10 +477,10 @@ func runJob(name string, j job.Job, timeout time.Duration) (err error) {
 }
 
 // retryDelay calculates the delay before the next retry attempt based on the chosen
-// backoff strategy. Exponential strategies are capped at maxDelay (no cap if <= 0).
+// backoff strategy. Every strategy is capped at maxDelay (no cap if <= 0).
 //
-//   - Constant:          base (same delay every attempt)
-//   - Linear:            base * (attempt + 1)  →  1x, 2x, 3x, ...
+//   - Constant:          min(maxDelay, base)
+//   - Linear:            min(maxDelay, base * (attempt + 1))  →  1x, 2x, 3x, capped, ...
 //   - Exponential:       min(maxDelay, base * 2^attempt)  →  1x, 2x, 4x, capped, ...
 //   - ExponentialJitter: random(0, min(maxDelay, base * 2^attempt))  (full jitter)
 //
@@ -490,11 +495,11 @@ func retryDelay(base time.Duration, maxDelay time.Duration, attempt int, strateg
 
 	switch strategy {
 	case config.Constant:
-		return base
+		return capDelay(base, maxDelay)
 
 	case config.Linear:
 		// attempt is 0-indexed; use attempt+1 so the first retry is never 0.
-		return saturatingDuration(float64(base) * float64(attempt+1))
+		return capDelay(saturatingDuration(float64(base)*float64(attempt+1)), maxDelay)
 
 	case config.Exponential:
 		// base * 2^attempt: 1x, 2x, 4x, 8x, ..., capped at maxDelay.
@@ -512,6 +517,14 @@ func retryDelay(base time.Duration, maxDelay time.Duration, attempt int, strateg
 	default:
 		return 0
 	}
+}
+
+// capDelay returns d limited to maxDelay when maxDelay > 0.
+func capDelay(d, maxDelay time.Duration) time.Duration {
+	if maxDelay > 0 && d > maxDelay {
+		return maxDelay
+	}
+	return d
 }
 
 // cappedExponential returns base * 2^attempt, capped at maxDelay when
