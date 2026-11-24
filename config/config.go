@@ -16,7 +16,8 @@ type MemoryType string
 const (
 	// InMemory is the configuration to use in-memory backend.
 	InMemory MemoryType = "in-memory"
-	// MongoDB is the configuration to use Mongo DB backend.
+	// MongoDB selects the MongoDB backend. It is not wired into the queue yet,
+	// so Validate rejects it.
 	MongoDB MemoryType = "mongo-db"
 )
 
@@ -132,7 +133,9 @@ func Default() Config {
 // Validate checks if the Config is valid and returns an error if any field is invalid.
 func (c *Config) Validate() error {
 	switch c.MemoryType {
-	case InMemory, MongoDB:
+	case InMemory:
+	case MongoDB:
+		return fmt.Errorf("%w: backend %q is not implemented yet", ErrInvalidConfig, c.MemoryType)
 	default:
 		return fmt.Errorf("%w: unsupported backend %q", ErrInvalidConfig, c.MemoryType)
 	}

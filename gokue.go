@@ -17,6 +17,39 @@ import (
 // Job is a task that can be executed by the queue.
 type Job = jobpkg.Job
 
+// Logger is the structured logging interface accepted by NewQueueWithLogger.
+// Implement it to route queue events to your own logging system.
+type Logger = logger.Logger
+
+// Level is the log level passed to Logger.Log.
+type Level = logger.Level
+
+// Log levels passed to Logger.Log.
+const (
+	LevelDebug = logger.LevelDebug
+	LevelInfo  = logger.LevelInfo
+	LevelWarn  = logger.LevelWarn
+	LevelError = logger.LevelError
+)
+
+// Errors returned by Queue methods. Use errors.Is to match them.
+var (
+	// ErrNilQueue is returned when a method is called on a nil *Queue.
+	ErrNilQueue = errors.New("queue is nil")
+	// ErrClosed is returned when submitting to a closed queue.
+	ErrClosed = dispatcher.ErrClosed
+	// ErrQueueFull is returned by TrySubmit when the queue is at capacity.
+	ErrQueueFull = dispatcher.ErrQueueFull
+	// ErrNilJob is returned when a nil job is submitted.
+	ErrNilJob = dispatcher.ErrNilJob
+	// ErrNilCtx is returned when a nil context is provided.
+	ErrNilCtx = dispatcher.ErrNilCtx
+	// ErrInvalidTask is returned when a per-submission option is out of range.
+	ErrInvalidTask = dispatcher.ErrInvalidTask
+	// ErrInvalidConfig is returned (wrapped) by NewQueue for invalid configuration.
+	ErrInvalidConfig = config.ErrInvalidConfig
+)
+
 // Option is a functional option for configuring a Queue.
 type Option func(*config.Config)
 
@@ -37,6 +70,14 @@ func RetryDelay(delay time.Duration) SubmitOption {
 	}
 }
 
+// RetryIf returns a SubmitOption that overrides the queue-level retry predicate
+// for this job. The job is retried only when predicate returns true.
+func RetryIf(predicate func(error) bool) SubmitOption {
+	return func(t *dispatcher.Task) {
+		t.RetryPredicates = predicate
+	}
+}
+
 // Queue manages job submission, execution, and statistics using a pool of workers.
 type Queue struct {
 	// config holds the queue configuration.
@@ -47,7 +88,11 @@ type Queue struct {
 	collector *stats.Collector
 }
 
-// WithMongoDB returns an Option that sets the MemoryType type to Mongo DB.
+// WithMongoDB sets Config.MemoryType to config.MongoDB.
+//
+// Deprecated: the MongoDB backend is not yet wired into Queue, so NewQueue
+// returns ErrInvalidConfig when this option is used. It is kept for API
+// compatibility and will work once persistence is implemented.
 func WithMongoDB(cfg config.Config) Option {
 	return func(target *config.Config) {
 		target.MemoryType = config.MongoDB
@@ -97,7 +142,17 @@ func WithMaxRetryDelay(delay time.Duration) Option {
 	}
 }
 
+// WithRetryPredicate returns an Option that sets the queue-level retry predicate.
+// A failed job is retried only when predicate returns true; otherwise it is
+// marked failed immediately. Use RetryIf to override it per submission.
+func WithRetryPredicate(predicate func(error) bool) Option {
+	return func(target *config.Config) {
+		target.RetryPredicates = predicate
+	}
+}
+
 // WithShutdownTimeout returns an Option that sets the graceful shutdown timeout.
+// Close applies it when the context passed to Close has no deadline.
 func WithShutdownTimeout(timeout time.Duration) Option {
 	return func(target *config.Config) {
 		target.ShutdownTimeout = timeout
@@ -189,7 +244,7 @@ func NewQueue(options ...Option) (*Queue, error) {
 // NewQueueWithLogger creates and returns a new Queue with the provided configuration options and logger.
 // It returns an error if the configuration is invalid.
 // If logger is nil, logging is disabled.
-func NewQueueWithLogger(logger logger.Logger, options ...Option) (*Queue, error) {
+func NewQueueWithLogger(logger Logger, options ...Option) (*Queue, error) {
 	queueConfig := config.Default()
 	for _, option := range options {
 		if option != nil {
@@ -219,13 +274,13 @@ func NewQueueWithLogger(logger logger.Logger, options ...Option) (*Queue, error)
 // SubmitOption arguments allow per-job overrides for MaxRetries and RetryDelay.
 func (q *Queue) Submit(ctx context.Context, task Job, opts ...SubmitOption) error {
 	if q == nil {
-		return errors.New("queue is nil")
+		return ErrNilQueue
 	}
 	if task == nil {
-		return errors.New("job cannot be nil")
+		return ErrNilJob
 	}
 	if ctx == nil {
-		return errors.New("context cannot be nil")
+		return ErrNilCtx
 	}
 
 	t := dispatcher.Task{Name: jobpkg.NameOf(task), Job: task}
@@ -242,13 +297,13 @@ func (q *Queue) Submit(ctx context.Context, task Job, opts ...SubmitOption) erro
 // SubmitOption arguments allow per-job overrides for MaxRetries and RetryDelay.
 func (q *Queue) TrySubmit(ctx context.Context, task Job, opts ...SubmitOption) error {
 	if q == nil {
-		return errors.New("queue is nil")
+		return ErrNilQueue
 	}
 	if task == nil {
-		return errors.New("job cannot be nil")
+		return ErrNilJob
 	}
 	if ctx == nil {
-		return errors.New("context cannot be nil")
+		return ErrNilCtx
 	}
 
 	t := dispatcher.Task{Name: jobpkg.NameOf(task), Job: task}
@@ -260,23 +315,34 @@ func (q *Queue) TrySubmit(ctx context.Context, task Job, opts ...SubmitOption) e
 	return q.dispatcher.TrySubmit(ctx, t)
 }
 
-// Run submits a job to the queue using a background context.
+// Run submits a job to the queue using a background context and returns the
+// submission error, if any. Like Submit, it blocks while the queue is full; it
+// returns ErrClosed if the queue is closed while waiting. Use Submit with a
+// context to bound the wait, or TrySubmit to never block.
 // The job's name is derived from its type, or from its Name method if it implements job.NamedJob.
 // SubmitOption arguments allow per-job overrides for MaxRetries and RetryDelay.
-func (q *Queue) Run(task Job, opts ...SubmitOption) {
+func (q *Queue) Run(task Job, opts ...SubmitOption) error {
 	if q == nil {
-		return
+		return ErrNilQueue
 	}
-	_ = q.Submit(context.Background(), task, opts...)
+	return q.Submit(context.Background(), task, opts...)
 }
 
 // Close gracefully shuts down the queue and waits for all workers to finish processing.
+// If ctx has no deadline and Config.ShutdownTimeout is positive, the wait is
+// bounded by ShutdownTimeout and Close returns context.DeadlineExceeded when it
+// elapses.
 func (q *Queue) Close(ctx context.Context) error {
 	if q == nil {
-		return errors.New("queue is nil")
+		return ErrNilQueue
 	}
 	if ctx == nil {
-		return errors.New("context cannot be nil")
+		return ErrNilCtx
+	}
+	if _, ok := ctx.Deadline(); !ok && q.config.ShutdownTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, q.config.ShutdownTimeout)
+		defer cancel()
 	}
 	return q.dispatcher.Close(ctx)
 }
