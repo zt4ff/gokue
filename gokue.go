@@ -7,6 +7,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/zt4ff/gokue/v2/backend"
 	"github.com/zt4ff/gokue/v2/config"
 	"github.com/zt4ff/gokue/v2/internal/dispatcher"
 	"github.com/zt4ff/gokue/v2/internal/logger"
@@ -108,9 +109,8 @@ type Queue struct {
 
 // WithMongoDB sets Config.MemoryType to config.MongoDB.
 //
-// Deprecated: the MongoDB backend is not yet wired into Queue, so NewQueue
-// returns ErrInvalidConfig when this option is used. It is kept for API
-// compatibility and will work once persistence is implemented.
+// Deprecated: use WithStore with a mongodb.MongoJobStore. NewQueue
+// returns ErrInvalidConfig when this option is used.
 func WithMongoDB(cfg config.Config) Option {
 	return func(target *config.Config) {
 		target.MemoryType = config.MongoDB
@@ -186,6 +186,43 @@ func WithOnFailure(hook func(JobEvent)) Option {
 func WithOnRetry(hook func(JobEvent)) Option {
 	return func(target *config.Config) {
 		target.OnRetry = hook
+	}
+}
+
+// WithStore returns an Option that makes the queue persistent. Submit saves
+// each job to store (encoded with codec) and workers claim jobs from it, so
+// jobs left unfinished by a crash or restart run again: delivery is at least
+// once, and jobs should be idempotent.
+//
+// Every submitted job type must be registered in codec, otherwise Submit
+// returns backend.ErrJobNotRegistered. QueueSize does not apply and TrySubmit
+// never returns ErrQueueFull. Close finishes the jobs this process claimed and
+// leaves the rest in the store. Per-submit options are not saved: a job
+// recovered after a restart uses the queue-level retry settings. The caller
+// closes the store after closing the queue.
+func WithStore(store backend.JobStore, codec *backend.Codec) Option {
+	return func(target *config.Config) {
+		target.MemoryType = config.Persistent
+		target.Store = store
+		target.Codec = codec
+	}
+}
+
+// WithLease returns an Option that sets how long a claimed job may go without
+// a heartbeat before it is handed to another worker (default 5m). Running jobs
+// renew their lease automatically. Only used with WithStore.
+func WithLease(lease time.Duration) Option {
+	return func(target *config.Config) {
+		target.Lease = lease
+	}
+}
+
+// WithPollInterval returns an Option that sets how often idle workers check
+// the store for jobs saved by other processes (default 1s). Only used with
+// WithStore.
+func WithPollInterval(interval time.Duration) Option {
+	return func(target *config.Config) {
+		target.PollInterval = interval
 	}
 }
 

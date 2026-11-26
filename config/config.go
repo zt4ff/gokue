@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/zt4ff/gokue/v2/backend"
 	"github.com/zt4ff/gokue/v2/internal/logger"
 )
 
@@ -19,6 +20,8 @@ const (
 	// MongoDB selects the MongoDB backend. It is not wired into the queue yet,
 	// so Validate rejects it.
 	MongoDB MemoryType = "mongo-db"
+	// Persistent keeps jobs in Config.Store. gokue.WithStore selects it.
+	Persistent MemoryType = "store"
 )
 
 // Backoff strategy
@@ -112,6 +115,18 @@ type Config struct {
 	OnSuccess func(JobEvent)
 	OnFailure func(JobEvent)
 	OnRetry   func(JobEvent)
+	// Store, when set, makes the queue persistent: jobs are saved to Store on
+	// submit and workers claim them from it. Codec is required with Store and
+	// every submitted job type must be registered in it. QueueSize is ignored.
+	// Use gokue.WithStore to set both.
+	Store backend.JobStore
+	Codec *backend.Codec
+	// Lease is how long a claimed job may go without a heartbeat before
+	// another worker may run it again. Only used with Store.
+	Lease time.Duration
+	// PollInterval is how often idle workers check Store for jobs saved by
+	// other processes. Only used with Store.
+	PollInterval time.Duration
 	// Logger enables structured logging for the queue. When nil, logging is disabled.
 	// Use gokue.WithLogger to set it.
 	Logger logger.Logger
@@ -146,6 +161,8 @@ func Default() Config {
 		MaxRetryDelay:   30 * time.Second,
 		BackoffStrategy: Exponential,
 		ShutdownTimeout: 10 * time.Second,
+		Lease:           5 * time.Minute,
+		PollInterval:    time.Second,
 		RetryPredicates: nil,
 		Logger:          nil,
 	}
@@ -155,6 +172,19 @@ func Default() Config {
 func (c *Config) Validate() error {
 	switch c.MemoryType {
 	case InMemory:
+		if c.Store != nil || c.Codec != nil {
+			return fmt.Errorf("%w: store and codec require the %q backend", ErrInvalidConfig, Persistent)
+		}
+	case Persistent:
+		if c.Store == nil || c.Codec == nil {
+			return fmt.Errorf("%w: a store and a codec are both required", ErrInvalidConfig)
+		}
+		if c.Lease <= 0 {
+			return fmt.Errorf("%w: lease must be greater than zero", ErrInvalidConfig)
+		}
+		if c.PollInterval <= 0 {
+			return fmt.Errorf("%w: poll interval must be greater than zero", ErrInvalidConfig)
+		}
 	case MongoDB:
 		return fmt.Errorf("%w: backend %q is not implemented yet", ErrInvalidConfig, c.MemoryType)
 	default:
