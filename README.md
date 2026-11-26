@@ -590,6 +590,23 @@ What changes compared with the in-memory queue:
   shutdown goes back to pending.
 - **Records are kept.** Finished records stay in the store as `succeeded` or
   `failed`; delete them with `JobStore.Delete` if you do not need the history.
+- **Dead letters.** `failed` records are the dead-letter queue: jobs that ran
+  out of retries, were refused by a retry predicate, or could not be decoded.
+  `Queue.DeadJobs` lists them with the final error in `LastError`, and
+  `Queue.Replay` puts one back in the queue with its attempts reset:
+
+  ```go
+  dead, err := q.DeadJobs(ctx, 100)
+  for _, rec := range dead {
+  	log.Printf("%s %s failed: %s", rec.ID, rec.Name, rec.LastError)
+  	if err := q.Replay(ctx, rec.ID); err != nil {
+  		log.Print(err)
+  	}
+  }
+  ```
+
+  Both return `gokue.ErrNotPersistent` on a queue without `WithStore`, whose
+  failed jobs are not kept (use `WithOnFailure` to capture them).
 - **Not saved:** per-submit options (`MaxRetries`, `RetryDelay`, `RetryIf`)
   apply only when the submitting process runs the job; a job picked up by
   another process or after a restart uses the queue-level settings. The submit

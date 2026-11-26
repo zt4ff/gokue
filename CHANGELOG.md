@@ -11,6 +11,11 @@ packages are covered by the compatibility promise.
 
 - `backend/mongodb` integration tests against a real MongoDB server, run in CI
   and locally when `GOKUE_MONGODB_URI` is set (#31).
+- Dead-letter queue for persistent queues: `Queue.DeadJobs` lists jobs that
+  failed for good and `Queue.Replay` runs one again with its attempts reset.
+  `backend.JobRecord` gains `LastError`, the final error of a failed record,
+  saved by the MongoDB store as `last_error`. New errors `ErrNotPersistent` and
+  `ErrNotFailed` (#33).
 - Examples: `examples/http-offload` (HTTP server handing work to a queue) and
   `examples/persistence` (a queue running jobs left in the store by an earlier
   one). CI now runs the examples (#52).

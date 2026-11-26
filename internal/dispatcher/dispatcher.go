@@ -47,6 +47,11 @@ var (
 	ErrNilCtx = errors.New("context cannot be nil")
 	// ErrInvalidShutdownMode is returned when an unknown shutdown mode is provided.
 	ErrInvalidShutdownMode = errors.New("invalid shutdown mode")
+	// ErrNotPersistent is returned by DeadJobs and Replay on a dispatcher
+	// without a store.
+	ErrNotPersistent = errors.New("queue has no store")
+	// ErrNotFailed is returned by Replay for a record that is not failed.
+	ErrNotFailed = errors.New("job is not failed")
 	// ErrInvalidTask is returned when a task carries an invalid per-task override.
 	ErrInvalidTask = errors.New("invalid task")
 )
@@ -428,7 +433,7 @@ func (d *Dispatcher) worker() {
 		default:
 		}
 		d.running.Add(1)
-		d.safeExecute(task)
+		_, _ = d.safeExecute(task)
 		d.running.Add(-1)
 	}
 }
@@ -436,11 +441,12 @@ func (d *Dispatcher) worker() {
 // safeExecute runs execute and recovers from panics in the dispatcher's own
 // logic (not the job, which runJob already guards) so that the worker keeps
 // serving the queue instead of silently shrinking the pool.
-func (d *Dispatcher) safeExecute(task Task) (result outcome) {
+// It also returns the error of the last failed attempt.
+func (d *Dispatcher) safeExecute(task Task) (result outcome, lastErr error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			logger.LogWorkerPanic(d.logger, recovered)
-			result = outcomeFailed
+			result, lastErr = outcomeFailed, fmt.Errorf("gokue: dispatcher panic: %v", recovered)
 		}
 	}()
 	return d.execute(task)
@@ -464,7 +470,7 @@ const (
 //
 // IncRetried tracks individual retry attempts, not retried tasks — a task retried
 // 3 times increments the counter 3 times.
-func (d *Dispatcher) execute(task Task) outcome {
+func (d *Dispatcher) execute(task Task) (outcome, error) {
 	startTime := time.Now()
 	var err error
 
@@ -496,7 +502,7 @@ func (d *Dispatcher) execute(task Task) outcome {
 			d.collector.IncProcessed()
 			logger.LogJobSuccess(d.logger, task.Name, duration)
 			d.callHook(d.cfg.OnSuccess, config.JobEvent{Name: task.Name, Attempt: attempt + 1, Duration: duration})
-			return outcomeSucceeded
+			return outcomeSucceeded, nil
 		}
 
 		// The predicate only decides whether to retry, so skip it when no
@@ -508,7 +514,7 @@ func (d *Dispatcher) execute(task Task) outcome {
 			d.collector.IncFailed()
 			logger.LogJobFailure(d.logger, task.Name, attempt+1, err, duration)
 			d.callHook(d.cfg.OnFailure, config.JobEvent{Name: task.Name, Attempt: attempt + 1, Err: err, Duration: duration})
-			return outcomeFailed
+			return outcomeFailed, err
 		}
 
 		if attempt < maxRetries {
@@ -523,7 +529,7 @@ func (d *Dispatcher) execute(task Task) outcome {
 				duration := time.Since(startTime)
 				logger.LogJobAbandoned(d.logger, task.Name, attempt+1, logger.ReasonDispatcherShutdown, duration)
 				d.callHook(d.cfg.OnFailure, config.JobEvent{Name: task.Name, Attempt: attempt + 1, Err: err, Duration: duration})
-				return outcomeAbandoned
+				return outcomeAbandoned, err
 			}
 		}
 	}
@@ -533,7 +539,7 @@ func (d *Dispatcher) execute(task Task) outcome {
 	d.collector.IncFailed()
 	logger.LogJobFailure(d.logger, task.Name, maxRetries+1, err, duration)
 	d.callHook(d.cfg.OnFailure, config.JobEvent{Name: task.Name, Attempt: maxRetries + 1, Err: err, Duration: duration})
-	return outcomeFailed
+	return outcomeFailed, err
 }
 
 // shutdownBeforeRetry waits delay before the next retry and reports whether
