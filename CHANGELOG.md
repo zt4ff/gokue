@@ -9,12 +9,15 @@ packages are covered by the compatibility promise.
 
 ### Added
 
+- `backend/mongodb` integration tests against a real MongoDB server, run in CI
+  and locally when `GOKUE_MONGODB_URI` is set (#31).
 - Dead-letter queue for persistent queues: `Queue.DeadJobs` lists jobs that
   failed for good and `Queue.Replay` runs one again with its attempts reset.
   `backend.JobRecord` gains `LastError`, the final error of a failed record,
   saved by the MongoDB store as `last_error`. New errors `ErrNotPersistent` and
   `ErrNotFailed` (#33).
 
+||||||| f749af1
 ### Fixed
 
 - The MongoDB module path is now `github.com/zt4ff/gokue/backend/mongodb/v2`.

@@ -777,9 +777,14 @@ go test -race ./...
 ```
 
 No external services are required. `backend/mongodb` is its own Go module, so
-run its tests from that directory (`cd backend/mongodb && go test -race ./...`);
-they only validate constructor and URI behavior and do not connect to a MongoDB
-server.
+run its tests from that directory. Its integration tests run against a real
+MongoDB server when `GOKUE_MONGODB_URI` is set and are skipped otherwise; CI
+runs them against `mongo:7`:
+
+```
+docker run -d -p 27017:27017 mongo:7
+cd backend/mongodb && GOKUE_MONGODB_URI=mongodb://localhost:27017 go test -race ./...
+```
 
 CI runs `go vet`, `staticcheck`, and `go test -count=1 -race ./...` on the
 `stable` and `oldstable` Go toolchains.

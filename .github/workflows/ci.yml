@@ -18,6 +18,17 @@ jobs:
       matrix:
         # 1.22.x is the minimum version declared in go.mod.
         go: ['1.22.x', oldstable, stable]
+    # Real MongoDB for the backend/mongodb integration tests.
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping: 1})'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -53,6 +64,8 @@ jobs:
 
       - name: Test with race detector (backend/mongodb)
         working-directory: backend/mongodb
+        env:
+          GOKUE_MONGODB_URI: mongodb://localhost:27017
         run: go test -count=1 -race ./...
 
       # Smoke-runs the benchmarks; numbers are not compared (no regression gate).
