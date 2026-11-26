@@ -440,6 +440,9 @@ If the close context ends first, jobs still waiting in the queue are dropped
 (counted in `Dropped`) and pending retries are abandoned. A `Submit` blocked on a
 full queue is released with `gokue.ErrClosed` as soon as `Close` is called.
 
+For a complete program that wires SIGINT/SIGTERM to `Close`, see
+[examples/graceful-shutdown](examples/graceful-shutdown/main.go).
+
 For an immediate return that does not wait for workers, use `CloseWithMode`
 with `gokue.ImmediateMode` (`Close` is `CloseWithMode` with `gokue.DrainMode`):
 
