@@ -18,6 +18,13 @@ packages are covered by the compatibility promise.
 - README: delivery guarantees per backend (#34).
 - README: "Why gokue?" comparison with asynq, River, gocraft/work and errgroup (#49).
 
+### Changed
+
+- `backend/mongodb` is now its own Go module,
+  `github.com/zt4ff/gokue/v2/backend/mongodb`, so the core module no longer
+  depends on the MongoDB driver. The import path is unchanged; projects that
+  import it need `go get github.com/zt4ff/gokue/v2/backend/mongodb` (#30).
+
 ## [2.0.0] - 2026-11-26
 
 First release covered by this changelog. It includes everything in v1.0.1 plus

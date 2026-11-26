@@ -21,7 +21,11 @@ breaking changes to them need a new major version (and module path suffix, e.g.
 
 - `gokue` (the `Queue` API, options, errors, `ShutdownMode`, `JobEvent`)
 - `config`, `stats`, `job`
-- `backend` and `backend/mongodb`
+- `backend`
+- `backend/mongodb`, a separate Go module (`backend/mongodb/go.mod`) so the
+  core module does not depend on the MongoDB driver. Run `go vet`, `staticcheck`
+  and `go test` from that directory too when you change it. It is released
+  with its own tags, `backend/mongodb/vX.Y.Z`.
 
 `internal/dispatcher` and `internal/logger` are implementation details and may
 change in any release. New user-facing behaviour should be exposed through

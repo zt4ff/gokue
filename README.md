@@ -91,6 +91,13 @@ go get github.com/zt4ff/gokue/v2@latest
 
 Requires Go **1.22.2** or newer (the version declared in `go.mod`).
 
+The MongoDB store is a separate module, so the core module does not pull in the
+MongoDB driver. Add it only if you use it:
+
+```
+go get github.com/zt4ff/gokue/v2/backend/mongodb@latest
+```
+
 ## Quick start
 
 ```go
@@ -752,8 +759,10 @@ Invalid per-submission values make `Submit`/`TrySubmit` return a wrapped
 go test -race ./...
 ```
 
-No external services are required. The `backend/mongodb` tests only validate
-constructor and URI behavior; they do not connect to a MongoDB server.
+No external services are required. `backend/mongodb` is its own Go module, so
+run its tests from that directory (`cd backend/mongodb && go test -race ./...`);
+they only validate constructor and URI behavior and do not connect to a MongoDB
+server.
 
 CI runs `go vet`, `staticcheck`, and `go test -count=1 -race ./...` on the
 `stable` and `oldstable` Go toolchains.
