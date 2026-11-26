@@ -16,6 +16,7 @@ packages are covered by the compatibility promise.
   `Codec`, `Lease`, `PollInterval` and the `config.Persistent` memory type.
   The in-memory queue is unchanged. See ADR 0001 (#28, #29).
 - README: delivery guarantees per backend (#34).
+- README: "Why gokue?" comparison with asynq, River, gocraft/work and errgroup (#49).
 
 ## [2.0.0] - 2026-11-26
 
