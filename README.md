@@ -36,7 +36,7 @@ external service is required to use the core package.
 - Job panic recovery; a panicking job is treated as a failure.
 - Atomic, lock-free statistics snapshot via `Stats`: cumulative counters plus live `QueueDepth`, `Running` and `IdleWorkers` gauges.
 - Optional structured JSON logging via `WithLogger`.
-- Graceful shutdown that drains running and queued jobs (plus an immediate mode on `dispatcher`).
+- Graceful shutdown that drains running and queued jobs (plus `CloseWithMode(ctx, gokue.ImmediateMode)` for an immediate stop).
 
 A standalone persistence layer also exists (`backend` and `backend/mongodb`). It
 is **not wired into the queue yet**; see [Status](#status).
@@ -144,10 +144,10 @@ unique.
 
 ### Queue and dispatcher
 
-`gokue.Queue` is the public entry point. It owns a `dispatcher.Dispatcher`, which
-runs the worker pool and the retry loop. Most programs use `Queue`; the
-`dispatcher` package is exported for advanced use (custom task types, or
-`CloseWithMode` for immediate shutdown).
+`gokue.Queue` is the public entry point. It owns an internal dispatcher, which
+runs the worker pool and the retry loop. The dispatcher lives under `internal/`
+and is not part of the public API; everything it exposes to users (errors,
+`ShutdownMode`, `PanicError`, `CloseWithMode`) is re-exported from `gokue`.
 
 ```go
 func NewQueue(options ...Option) (*Queue, error)
@@ -440,11 +440,11 @@ If the close context ends first, jobs still waiting in the queue are dropped
 (counted in `Dropped`) and pending retries are abandoned. A `Submit` blocked on a
 full queue is released with `gokue.ErrClosed` as soon as `Close` is called.
 
-For an immediate return that does not wait for workers, the dispatcher exposes
-`CloseWithMode`, which takes a typed `dispatcher.ShutdownMode`:
+For an immediate return that does not wait for workers, use `CloseWithMode`
+with `gokue.ImmediateMode` (`Close` is `CloseWithMode` with `gokue.DrainMode`):
 
 ```go
-d.CloseWithMode(context.Background(), dispatcher.ImmediateMode)
+q.CloseWithMode(context.Background(), gokue.ImmediateMode)
 ```
 
 ### Error handling
@@ -591,13 +591,13 @@ Invalid per-submission values make `Submit`/`TrySubmit` return a wrapped
 
 | Package | Error | Returned when |
 | --- | --- | --- |
-| `gokue` | `ErrNilQueue`, `ErrClosed`, `ErrQueueFull`, `ErrNilJob`, `ErrNilCtx`, `ErrInvalidTask`, `ErrInvalidConfig` | Returned by `Queue` methods and `NewQueue`; aliases of the `dispatcher`/`config` sentinels below, so `errors.Is` works with either. |
-| `dispatcher` | `ErrClosed` | Submitting after the queue is closed. |
-| `dispatcher` | `ErrQueueFull` | `TrySubmit` when the queue is at capacity. |
-| `dispatcher` | `ErrNilJob` | Nil job at the dispatcher level. |
-| `dispatcher` | `ErrNilCtx` | Nil context at the dispatcher level. |
-| `dispatcher` | `ErrInvalidShutdownMode` | `CloseWithMode` receives an unknown mode. |
-| `dispatcher` | `ErrInvalidTask` | A per-submission override is out of range (e.g. negative `MaxRetries`). |
+| `gokue` | `ErrNilQueue` | A method is called on a nil `*Queue`. |
+| `gokue` | `ErrClosed` | Submitting after the queue is closed. |
+| `gokue` | `ErrQueueFull` | `TrySubmit` when the queue is at capacity. |
+| `gokue` | `ErrNilJob` / `ErrNilCtx` | A nil job or context is passed. |
+| `gokue` | `ErrInvalidTask` | A per-submission override is out of range (e.g. negative `MaxRetries`). |
+| `gokue` | `ErrInvalidShutdownMode` | `CloseWithMode` receives an unknown mode. |
+| `gokue` | `ErrInvalidConfig` | Alias of `config.ErrInvalidConfig`. |
 | `config` | `ErrInvalidConfig` | `NewQueue` receives invalid configuration. |
 | `context` | `Canceled` / `DeadlineExceeded` | A submit or close context ends before the operation completes. |
 | `backend` | `ErrNotFound`, `ErrAlreadyExists`, `ErrConflict`, `ErrStoreClosed`, `ErrNilStore`, `ErrNotConnected` | Storage operations; see the package docs. |
@@ -605,8 +605,7 @@ Invalid per-submission values make `Submit`/`TrySubmit` return a wrapped
 
 ## Concurrency and delivery semantics
 
-- **Concurrency:** `Queue` methods and `dispatcher.Dispatcher` methods are safe
-  for concurrent use. Statistics are updated with lock-free atomic counters.
+- **Concurrency:** `Queue` methods are safe for concurrent use. Statistics are updated with lock-free atomic counters.
 - **Ordering:** jobs are enqueued in submission order into a buffered channel.
   With more than one worker, completion order is not guaranteed. A job that is
   retrying occupies its worker for the whole retry schedule, so it can hold up
