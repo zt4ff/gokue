@@ -39,7 +39,6 @@ and no external service is required. With `WithStore`, jobs are saved to a
 - Atomic, lock-free statistics snapshot via `Stats`: cumulative counters plus live `QueueDepth`, `Running` and `IdleWorkers` gauges.
 - Optional structured JSON logging via `WithLogger`.
 - Graceful shutdown that drains running and queued jobs (plus `CloseWithMode(ctx, gokue.ImmediateMode)` for an immediate stop).
-
 - Optional persistence through `WithStore`: at-least-once delivery, leases and
   crash recovery on top of a `backend.JobStore` (in-memory and MongoDB stores
   are included).
