@@ -84,7 +84,7 @@ const (
 type Config struct {
 	// MemoryType is the storage type of the queue.
 	MemoryType MemoryType
-	// WorkerCount is the CPU count simultaneosly executing the jobs.
+	// WorkerCount is the number of jobs executed simultaneously.
 	WorkerCount int
 	// QueueSize is the maximum number of jobs that can be enqueued in a queue.
 	QueueSize int

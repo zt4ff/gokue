@@ -253,7 +253,7 @@ func (s *MongoJobStore) List(ctx context.Context, f backend.ListFilter) ([]backe
 	if err != nil {
 		return nil, fmt.Errorf("list job records: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	var docs []jobDocument
 	if err := cursor.All(ctx, &docs); err != nil {
