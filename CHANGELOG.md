@@ -16,6 +16,9 @@ packages are covered by the compatibility promise.
   `backend.JobRecord` gains `LastError`, the final error of a failed record,
   saved by the MongoDB store as `last_error`. New errors `ErrNotPersistent` and
   `ErrNotFailed` (#33).
+- Examples: `examples/http-offload` (HTTP server handing work to a queue) and
+  `examples/persistence` (a queue running jobs left in the store by an earlier
+  one). CI now runs the examples (#52).
 
 ### Fixed
 

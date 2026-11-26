@@ -68,6 +68,12 @@ jobs:
           GOKUE_MONGODB_URI: mongodb://localhost:27017
         run: go test -count=1 -race ./...
 
+      - name: Run examples
+        run: |
+          go run ./examples/persistence
+          go run ./examples/http-offload -run 2s
+          go run ./examples/graceful-shutdown -run 2s
+
       # Smoke-runs the benchmarks; numbers are not compared (no regression gate).
       - name: Run benchmarks
         if: matrix.go == 'stable'

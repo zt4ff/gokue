@@ -490,7 +490,9 @@ If the close context ends first, jobs still waiting in the queue are dropped
 full queue is released with `gokue.ErrClosed` as soon as `Close` is called.
 
 For a complete program that wires SIGINT/SIGTERM to `Close`, see
-[examples/graceful-shutdown](examples/graceful-shutdown/main.go).
+[examples/graceful-shutdown](examples/graceful-shutdown/main.go). For an HTTP
+server that hands work to a queue, returns 503 when it is full, and drains it
+on shutdown, see [examples/http-offload](examples/http-offload/main.go).
 
 For an immediate return that does not wait for workers, use `CloseWithMode`
 with `gokue.ImmediateMode` (`Close` is `CloseWithMode` with `gokue.DrainMode`):
@@ -613,7 +615,9 @@ What changes compared with the in-memory queue:
 `backend.MemoryStore` keeps records in process memory, so it is useful for
 tests and for sharing one store between queues, not for surviving a restart.
 The design is described in
-[ADR 0001](docs/adr/0001-persistent-queue.md).
+[ADR 0001](docs/adr/0001-persistent-queue.md), and
+[examples/persistence](examples/persistence/main.go) shows a second queue
+running the jobs a first one left in the store.
 
 ### Persistence layer (standalone)
 
