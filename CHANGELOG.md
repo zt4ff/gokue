@@ -9,10 +9,13 @@ packages are covered by the compatibility promise.
 
 ### Added
 
+- `backend/mongodb` integration tests against a real MongoDB server, run in CI
+  and locally when `GOKUE_MONGODB_URI` is set (#31).
 - Examples: `examples/http-offload` (HTTP server handing work to a queue) and
   `examples/persistence` (a queue running jobs left in the store by an earlier
   one). CI now runs the examples (#52).
 
+||||||| f749af1
 ### Fixed
 
 - The MongoDB module path is now `github.com/zt4ff/gokue/backend/mongodb/v2`.
