@@ -43,6 +43,46 @@ and no external service is required. With `WithStore`, jobs are saved to a
   crash recovery on top of a `backend.JobStore` (in-memory and MongoDB stores
   are included).
 
+## Why gokue?
+
+gokue runs background jobs inside your Go process. The default queue needs no
+broker, database or extra service; a store can be added later for jobs that
+must survive a restart.
+
+| | gokue | [asynq](https://github.com/hibiken/asynq) | [River](https://github.com/riverqueue/river) | [gocraft/work](https://github.com/gocraft/work) | [errgroup](https://pkg.go.dev/golang.org/x/sync/errgroup) |
+| --- | --- | --- | --- | --- | --- |
+| Needs | nothing (a `JobStore` for persistence) | Redis | PostgreSQL or SQLite | Redis | nothing |
+| Jobs survive a restart | with `WithStore` | yes | yes | yes | no |
+| Workers in other processes | only through a shared store | yes | yes | yes | no |
+| Retries and backoff | yes | yes | yes | yes | no |
+| Delayed and cron jobs | not yet | yes | yes | yes | no |
+| Priorities, unique jobs | not yet | yes | yes | yes | no |
+| Enqueue in a database transaction | no | no | yes | no | no |
+| Web UI | no | yes | yes | yes | no |
+
+Choose gokue when:
+
+- the work belongs to one service and you do not want to run Redis or
+  PostgreSQL just for a queue;
+- you want retries, backoff, timeouts, panic recovery, hooks and stats around a
+  bounded worker pool, which `errgroup` or a hand-written pool does not give
+  you;
+- you want to start in memory and add persistence later without changing how
+  jobs are written.
+
+Choose something else when:
+
+- separate worker processes or machines must share the queue at scale: use
+  asynq or River (gocraft/work's last release, v0.5.1, is from 2018);
+- a job must be enqueued atomically with other database writes: use River;
+- you need delayed, cron, priority or unique jobs today (they are on the
+  [roadmap](ROADMAP.md)), or a dashboard;
+- you only need to run a few goroutines and collect the first error: use
+  `errgroup`.
+
+The comparison was checked in November 2026 against asynq v0.26.0, River
+v0.51.2, gocraft/work v0.5.1 and the `errgroup` package documentation.
+
 ## Installation
 
 ```
