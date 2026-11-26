@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/zt4ff/gokue/config"
-	"github.com/zt4ff/gokue/dispatcher"
+	"github.com/zt4ff/gokue/internal/dispatcher"
 	"github.com/zt4ff/gokue/stats"
 )
 

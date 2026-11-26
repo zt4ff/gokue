@@ -187,3 +187,53 @@ func TestRetryPredicateOptions(t *testing.T) {
 		t.Fatalf("unexpected stats %+v", s)
 	}
 }
+
+func TestCloseWithModeImmediateReturnsWithoutWaiting(t *testing.T) {
+	q, err := gokue.NewQueue(gokue.WithWorkerCount(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	defer close(release)
+	if err := q.Submit(context.Background(), funcJob(func(context.Context) error {
+		close(started)
+		<-release
+		return nil
+	})); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	if err := q.Submit(context.Background(), funcJob(func(context.Context) error { return nil })); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- q.CloseWithMode(context.Background(), gokue.ImmediateMode) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("CloseWithMode: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("ImmediateMode waited for the running job")
+	}
+	if err := q.Submit(context.Background(), funcJob(func(context.Context) error { return nil })); !errors.Is(err, gokue.ErrClosed) {
+		t.Fatalf("Submit after close = %v, want ErrClosed", err)
+	}
+}
+
+func TestCloseWithModeRejectsUnknownMode(t *testing.T) {
+	q, err := gokue.NewQueue()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close(context.Background())
+	if err := q.CloseWithMode(context.Background(), gokue.ShutdownMode("bogus")); !errors.Is(err, gokue.ErrInvalidShutdownMode) {
+		t.Fatalf("got %v, want ErrInvalidShutdownMode", err)
+	}
+	var nilQ *gokue.Queue
+	if err := nilQ.CloseWithMode(context.Background(), gokue.DrainMode); !errors.Is(err, gokue.ErrNilQueue) {
+		t.Fatalf("nil queue: got %v", err)
+	}
+}

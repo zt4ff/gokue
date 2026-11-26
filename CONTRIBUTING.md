@@ -10,6 +10,20 @@ grouped by [milestone](https://github.com/zt4ff/gokue/milestones). Issues labell
 `good-first-issue` are a good place to start. Comment on an issue before starting
 larger changes so work isn't duplicated.
 
+## Public API
+
+From v0.1.0 the packages below follow [semantic versioning](https://semver.org);
+breaking changes to them need a major version bump (or a minor bump while on
+v0.x, noted in the changelog):
+
+- `gokue` (the `Queue` API, options, errors, `ShutdownMode`, `JobEvent`)
+- `config`, `stats`, `job`
+- `backend` and `backend/mongodb`
+
+`internal/dispatcher` and `internal/logger` are implementation details and may
+change in any release. New user-facing behaviour should be exposed through
+`gokue`, re-exporting internal types with aliases where needed.
+
 ## Development setup
 
 - Go 1.22 or newer (the minimum is set in `go.mod`).

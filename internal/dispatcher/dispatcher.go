@@ -1,4 +1,4 @@
-// Package dispatcher provides a task dispatcher for executing jobs with worker pool pattern.
+// Package dispatcher runs gokue's worker pool. It is internal; use the gokue package.
 // It manages job submission, processing, retries, and collection of execution statistics.
 package dispatcher
 

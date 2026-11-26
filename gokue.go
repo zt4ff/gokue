@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/zt4ff/gokue/config"
-	"github.com/zt4ff/gokue/dispatcher"
+	"github.com/zt4ff/gokue/internal/dispatcher"
 	"github.com/zt4ff/gokue/internal/logger"
 	jobpkg "github.com/zt4ff/gokue/job"
 	"github.com/zt4ff/gokue/stats"
@@ -52,6 +52,20 @@ var (
 	ErrInvalidTask = dispatcher.ErrInvalidTask
 	// ErrInvalidConfig is returned (wrapped) by NewQueue for invalid configuration.
 	ErrInvalidConfig = config.ErrInvalidConfig
+	// ErrInvalidShutdownMode is returned by CloseWithMode for an unknown mode.
+	ErrInvalidShutdownMode = dispatcher.ErrInvalidShutdownMode
+)
+
+// ShutdownMode selects how CloseWithMode treats queued and running jobs.
+type ShutdownMode = dispatcher.ShutdownMode
+
+const (
+	// DrainMode processes queued jobs and in-flight retries before returning.
+	// It is the mode used by Close.
+	DrainMode = dispatcher.DrainMode
+	// ImmediateMode stops accepting work, drops queued jobs, abandons pending
+	// retries and returns without waiting for running jobs to finish.
+	ImmediateMode = dispatcher.ImmediateMode
 )
 
 // Option is a functional option for configuring a Queue.
@@ -367,6 +381,13 @@ func (q *Queue) Run(task Job, opts ...SubmitOption) error {
 // bounded by ShutdownTimeout and Close returns context.DeadlineExceeded when it
 // elapses.
 func (q *Queue) Close(ctx context.Context) error {
+	return q.CloseWithMode(ctx, DrainMode)
+}
+
+// CloseWithMode shuts down the queue using mode. DrainMode behaves like Close;
+// ImmediateMode drops queued jobs and returns without waiting for running jobs.
+// ShutdownTimeout applies as in Close.
+func (q *Queue) CloseWithMode(ctx context.Context, mode ShutdownMode) error {
 	if q == nil {
 		return ErrNilQueue
 	}
@@ -378,7 +399,7 @@ func (q *Queue) Close(ctx context.Context) error {
 		ctx, cancel = context.WithTimeout(ctx, q.config.ShutdownTimeout)
 		defer cancel()
 	}
-	return q.dispatcher.Close(ctx)
+	return q.dispatcher.CloseWithMode(ctx, mode)
 }
 
 // Stats returns a snapshot of the current execution statistics.
