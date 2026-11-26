@@ -17,7 +17,6 @@ packages are covered by the compatibility promise.
   saved by the MongoDB store as `last_error`. New errors `ErrNotPersistent` and
   `ErrNotFailed` (#33).
 
-||||||| f749af1
 ### Fixed
 
 - The MongoDB module path is now `github.com/zt4ff/gokue/backend/mongodb/v2`.
