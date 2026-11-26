@@ -22,12 +22,14 @@ for background work within a single Go service — sending email, resizing image
 calling an API, and similar best-effort tasks — where adding an external broker
 would be unnecessary weight.
 
-The queue is **in-memory only**. Jobs do not survive a process restart, and no
-external service is required to use the core package.
+By default the queue is **in-memory**: jobs do not survive a process restart,
+and no external service is required. With `WithStore`, jobs are saved to a
+`backend.JobStore` and unfinished jobs run again after a crash or restart; see
+[Persistent queues](#persistent-queues).
 
 ## Features
 
-- Bounded in-memory queue with a configurable capacity.
+- Bounded in-memory queue with a configurable capacity (the default).
 - Fixed pool of worker goroutines.
 - Blocking (`Submit`), non-blocking (`TrySubmit`), and fire-and-forget (`Run`) submission.
 - Retries with `Constant`, `Linear`, `Exponential`, and `ExponentialJitter` backoff.
@@ -37,9 +39,9 @@ external service is required to use the core package.
 - Atomic, lock-free statistics snapshot via `Stats`: cumulative counters plus live `QueueDepth`, `Running` and `IdleWorkers` gauges.
 - Optional structured JSON logging via `WithLogger`.
 - Graceful shutdown that drains running and queued jobs (plus `CloseWithMode(ctx, gokue.ImmediateMode)` for an immediate stop).
-
-A standalone persistence layer also exists (`backend` and `backend/mongodb`). It
-is **not wired into the queue yet**; see [Status](#status).
+- Optional persistence through `WithStore`: at-least-once delivery, leases and
+  crash recovery on top of a `backend.JobStore` (in-memory and MongoDB stores
+  are included).
 
 ## Installation
 
@@ -189,8 +191,8 @@ type JobStore interface {
 
 `backend.MemoryStore` implements it in memory, `backend.Codec` serializes jobs to
 and from JSON payloads, and `backend/mongodb` provides a MongoDB-backed store.
-These types are usable today but are **not** connected to `gokue.Queue`; see
-[Status](#status).
+Pass a store and a codec to `gokue.WithStore` to make a queue persistent; see
+[Persistent queues](#persistent-queues).
 
 ## Usage
 
@@ -494,6 +496,61 @@ Log lines are JSON with the zap production encoder, for example:
 {"level":"info","ts":1791817682.6266255,"msg":"dispatcher_close_started","mode":"drain"}
 ```
 
+### Persistent queues
+
+By default jobs live in memory and are lost when the process exits. With
+`WithStore`, `Submit` saves each job to a `backend.JobStore` and workers claim
+jobs from it, so a job left unfinished by a crash or restart runs again.
+
+```go
+codec := backend.NewCodec()
+if err := codec.Register("", EmailJob{}); err != nil { // every job type you submit
+	log.Fatal(err)
+}
+store := backend.NewMemoryStore() // or a mongodb.MongoJobStore
+
+q, err := gokue.NewQueue(
+	gokue.WithStore(store, codec),
+	gokue.WithLease(2*time.Minute),      // default 5m
+	gokue.WithPollInterval(time.Second), // default 1s
+)
+if err != nil {
+	log.Fatal(err)
+}
+defer store.Close(context.Background()) // the queue does not close the store
+defer q.Close(context.Background())
+
+err = q.Submit(ctx, EmailJob{To: "a@example.com", Body: "hi"})
+```
+
+What changes compared with the in-memory queue:
+
+- **Jobs must be serializable.** They are stored as JSON, so only exported
+  fields survive, and each type must be registered in the codec. `Submit`
+  returns `backend.ErrJobNotRegistered` for an unregistered type.
+- **Delivery is at least once.** A job can run twice if the process dies after
+  the job ran but before its outcome was saved. Write jobs to be idempotent.
+- **Leases.** A claimed job renews its lease while it runs. If its process
+  dies, the job goes back to pending once the lease expires and another worker
+  (in this or another process sharing the store) runs it.
+- **No queue capacity.** `QueueSize` is ignored, `Submit` does not block on a
+  full queue, `TrySubmit` never returns `ErrQueueFull`, and `Stats().QueueDepth`
+  is 0.
+- **Shutdown.** `Close` finishes the jobs this process already claimed and
+  leaves the rest in the store for the next start. A retry abandoned by
+  shutdown goes back to pending.
+- **Records are kept.** Finished records stay in the store as `succeeded` or
+  `failed`; delete them with `JobStore.Delete` if you do not need the history.
+- **Not saved:** per-submit options (`MaxRetries`, `RetryDelay`, `RetryIf`)
+  apply only when the submitting process runs the job; a job picked up by
+  another process or after a restart uses the queue-level settings. The submit
+  context's values are not passed to the job.
+
+`backend.MemoryStore` keeps records in process memory, so it is useful for
+tests and for sharing one store between queues, not for surviving a restart.
+The design is described in
+[ADR 0001](docs/adr/0001-persistent-queue.md).
+
 ### Persistence layer (standalone)
 
 `backend.Codec` serializes jobs to JSON, and a `backend.JobStore` stores the
@@ -558,7 +615,10 @@ exported fields) with `backend.ErrNoSerializableFields`.
 | `WithShutdownTimeout` | `time.Duration` | `10s` | Bounds `Close` when its context has no deadline. `0` waits indefinitely. |
 | `WithRetryPredicate` | `func(error) bool` | `nil` | Retry a failed job only when it returns `true`. |
 | `WithOnSuccess` / `WithOnFailure` / `WithOnRetry` | `func(gokue.JobEvent)` | `nil` | Lifecycle hooks; see [Lifecycle hooks](#lifecycle-hooks). |
-| `WithMongoDB` | `config.Config` | — | Deprecated. The MongoDB backend is not wired in yet, so `NewQueue` returns `ErrInvalidConfig`. |
+| `WithStore` | `backend.JobStore`, `*backend.Codec` | in-memory | Saves jobs to the store; see [Persistent queues](#persistent-queues). Both arguments are required. |
+| `WithLease` | `time.Duration` | `5m` | With `WithStore`: time without a heartbeat before a claimed job is run again. Must be `> 0`. |
+| `WithPollInterval` | `time.Duration` | `1s` | With `WithStore`: how often idle workers check the store. Must be `> 0`. |
+| `WithMongoDB` | `config.Config` | — | Deprecated; `NewQueue` returns `ErrInvalidConfig`. Use `WithStore` with a `mongodb.MongoJobStore`. |
 
 ### Per-submission options
 
@@ -575,7 +635,9 @@ Invalid per-submission values make `Submit`/`TrySubmit` return a wrapped
 
 | Field | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `MemoryType` | `config.MemoryType` | `config.InMemory` | Only `InMemory` is supported; `MongoDB` is rejected until implemented. |
+| `MemoryType` | `config.MemoryType` | `config.InMemory` | `InMemory`, or `Persistent` (set by `WithStore`). `MongoDB` is rejected. |
+| `Store` / `Codec` | `backend.JobStore` / `*backend.Codec` | `nil` | Set with `WithStore`. |
+| `Lease` / `PollInterval` | `time.Duration` | `5m` / `1s` | Used only with a store. |
 | `WorkerCount` | `int` | `GOMAXPROCS(0)` | Must be `> 0`. |
 | `QueueSize` | `int` | `1024` | Must be `> 0`. |
 | `MaxRetries` | `int` | `3` | Must be `>= 0`. |
@@ -616,9 +678,16 @@ Invalid per-submission values make `Submit`/`TrySubmit` return a wrapped
 - **Attempts:** each job is attempted once, plus up to `MaxRetries` retries. A job
   that fails and is retried runs more than once; write jobs to be idempotent where
   that matters.
-- **Durability:** none. The queue is in-memory, so queued and in-flight jobs are
-  lost if the process exits unexpectedly. The `backend` package can persist jobs,
-  but it is not wired into the queue.
+- **Durability and delivery:** depends on the backend.
+
+  | Queue | Guarantee | A job is lost when | A job runs twice when |
+  | --- | --- | --- | --- |
+  | In-memory (default) | at most once | the process exits with jobs queued or running | never (retries aside) |
+  | `WithStore` + `MemoryStore` | at least once within the process | the process exits | a job stops renewing its lease while still running |
+  | `WithStore` + `mongodb.MongoJobStore` | at least once | MongoDB loses the record | the process dies after the job ran but before its outcome was saved, or a job stops renewing its lease |
+
+  The rest of this list describes the in-memory queue; see
+  [Persistent queues](#persistent-queues) for the differences.
 - **Job context:** `Process` receives a context that carries the values of the
   `Submit` context (request IDs, trace spans) but not its cancellation or
   deadline, so cancelling the submit context after `Submit` returns does not
@@ -697,13 +766,14 @@ Available now:
 
 - In-memory queue, worker pool, submission, retries and backoff, per-attempt
   timeout, panic recovery, statistics, optional logging, graceful shutdown.
+- Persistent queues through `WithStore` with at-least-once delivery and crash
+  recovery.
 - A benchmark suite with published numbers (see [Benchmarks](#benchmarks)).
-- Standalone persistence package: `backend.JobStore`, `backend.MemoryStore`,
+- Persistence package: `backend.JobStore`, `backend.MemoryStore`,
   `backend.Codec`, and the MongoDB connection/store in `backend/mongodb`.
 
 Not yet available (see [`ROADMAP.md`](ROADMAP.md)):
 
-- Queue integration with a storage backend (`MemoryType` abstraction).
 - Dead-letter queue, job cancellation, priority levels, idempotency keys.
 - Scheduled/delayed jobs, cron jobs, dynamic worker scaling.
 - Result futures, typed generic jobs, job groups, batch submit, and health
@@ -711,8 +781,9 @@ Not yet available (see [`ROADMAP.md`](ROADMAP.md)):
 
 Known gaps in the current API:
 
-- The MongoDB backend exists as a standalone `backend.JobStore` but is not wired
-  into `Queue`; `WithMongoDB` is rejected by `NewQueue` until it is.
+- `WithMongoDB` is deprecated and rejected by `NewQueue`; pass a
+  `mongodb.MongoJobStore` to `WithStore` instead. The MongoDB store has not
+  been tested against a live server yet.
 
 ## Contributing
 
