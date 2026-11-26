@@ -5,6 +5,18 @@ All notable changes to gokue are documented here. The format follows
 [semantic versioning](https://semver.org). See CONTRIBUTING.md for which
 packages are covered by the compatibility promise.
 
+## [Unreleased]
+
+### Added
+
+- Persistent queues: `WithStore(store, codec)` saves jobs to a
+  `backend.JobStore` on submit and workers claim them from it, giving
+  at-least-once delivery and recovery of jobs left unfinished by a crash.
+  `WithLease` and `WithPollInterval` tune it. `config.Config` gains `Store`,
+  `Codec`, `Lease`, `PollInterval` and the `config.Persistent` memory type.
+  The in-memory queue is unchanged. See ADR 0001 (#28, #29).
+- README: delivery guarantees per backend (#34).
+
 ## [2.0.0] - 2026-11-26
 
 First release covered by this changelog. It includes everything in v1.0.1 plus

@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/zt4ff/gokue/v2/backend"
 	"github.com/zt4ff/gokue/v2/config"
 	"github.com/zt4ff/gokue/v2/internal/logger"
 	"github.com/zt4ff/gokue/v2/job"
@@ -121,6 +122,15 @@ type Dispatcher struct {
 	// closingOnce ensures closing is closed exactly once.
 	closingOnce sync.Once
 
+	// store and codec are set in persistent mode: jobs are saved to store and
+	// workers claim them from it instead of reading the tasks channel.
+	store backend.JobStore
+	codec *backend.Codec
+	// wake nudges idle persistent workers when a job is saved.
+	wake chan struct{}
+	// local holds per-submit overrides of jobs saved by this process, by job ID.
+	local sync.Map
+
 	// submitMu protects the closed flag.
 	submitMu sync.RWMutex
 	// closed indicates whether the dispatcher has been closed.
@@ -149,15 +159,28 @@ func NewDispatcher(cfg config.Config, collector *stats.Collector) *Dispatcher {
 		cfg:       cfg,
 		collector: collector,
 		logger:    cfg.Logger,
-		tasks:     make(chan Task, cfg.QueueSize),
 		quit:      make(chan struct{}),
 		closing:   make(chan struct{}),
+	}
+
+	if cfg.Store != nil {
+		d.store = cfg.Store
+		d.codec = cfg.Codec
+		d.tasks = make(chan Task)
+		d.wake = make(chan struct{}, cfg.WorkerCount)
+		go d.reaper()
+	} else {
+		d.tasks = make(chan Task, cfg.QueueSize)
 	}
 
 	for worker := 0; worker < cfg.WorkerCount; worker++ {
 		d.wg.Add(1)
 		d.liveWorkers.Add(1)
-		go d.worker()
+		if d.store != nil {
+			go d.storeWorker()
+		} else {
+			go d.worker()
+		}
 	}
 
 	return d
@@ -181,6 +204,9 @@ func (d *Dispatcher) Submit(ctx context.Context, task Task) error {
 	if d.closed {
 		logger.LogSubmitRejected(d.logger, task.Name, logger.ReasonDispatcherClosed)
 		return ErrClosed
+	}
+	if d.store != nil {
+		return d.save(ctx, task)
 	}
 
 	select {
@@ -239,6 +265,9 @@ func (d *Dispatcher) TrySubmit(ctx context.Context, task Task) error {
 	if d.closed {
 		logger.LogSubmitRejected(d.logger, task.Name, logger.ReasonDispatcherClosed)
 		return ErrClosed
+	}
+	if d.store != nil {
+		return d.save(ctx, task)
 	}
 
 	select {
@@ -407,14 +436,25 @@ func (d *Dispatcher) worker() {
 // safeExecute runs execute and recovers from panics in the dispatcher's own
 // logic (not the job, which runJob already guards) so that the worker keeps
 // serving the queue instead of silently shrinking the pool.
-func (d *Dispatcher) safeExecute(task Task) {
+func (d *Dispatcher) safeExecute(task Task) (result outcome) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			logger.LogWorkerPanic(d.logger, recovered)
+			result = outcomeFailed
 		}
 	}()
-	d.execute(task)
+	return d.execute(task)
 }
+
+// outcome is how execute finished a task.
+type outcome int
+
+const (
+	outcomeSucceeded outcome = iota
+	outcomeFailed
+	// outcomeAbandoned means shutdown interrupted the task's remaining retries.
+	outcomeAbandoned
+)
 
 // execute runs a task with retry logic based on the dispatcher's configuration.
 // It attempts to execute the job up to MaxRetries times with configurable backoff delays.
@@ -424,7 +464,7 @@ func (d *Dispatcher) safeExecute(task Task) {
 //
 // IncRetried tracks individual retry attempts, not retried tasks — a task retried
 // 3 times increments the counter 3 times.
-func (d *Dispatcher) execute(task Task) {
+func (d *Dispatcher) execute(task Task) outcome {
 	startTime := time.Now()
 	var err error
 
@@ -456,7 +496,7 @@ func (d *Dispatcher) execute(task Task) {
 			d.collector.IncProcessed()
 			logger.LogJobSuccess(d.logger, task.Name, duration)
 			d.callHook(d.cfg.OnSuccess, config.JobEvent{Name: task.Name, Attempt: attempt + 1, Duration: duration})
-			return
+			return outcomeSucceeded
 		}
 
 		// The predicate only decides whether to retry, so skip it when no
@@ -468,7 +508,7 @@ func (d *Dispatcher) execute(task Task) {
 			d.collector.IncFailed()
 			logger.LogJobFailure(d.logger, task.Name, attempt+1, err, duration)
 			d.callHook(d.cfg.OnFailure, config.JobEvent{Name: task.Name, Attempt: attempt + 1, Err: err, Duration: duration})
-			return
+			return outcomeFailed
 		}
 
 		if attempt < maxRetries {
@@ -483,7 +523,7 @@ func (d *Dispatcher) execute(task Task) {
 				duration := time.Since(startTime)
 				logger.LogJobAbandoned(d.logger, task.Name, attempt+1, logger.ReasonDispatcherShutdown, duration)
 				d.callHook(d.cfg.OnFailure, config.JobEvent{Name: task.Name, Attempt: attempt + 1, Err: err, Duration: duration})
-				return
+				return outcomeAbandoned
 			}
 		}
 	}
@@ -493,6 +533,7 @@ func (d *Dispatcher) execute(task Task) {
 	d.collector.IncFailed()
 	logger.LogJobFailure(d.logger, task.Name, maxRetries+1, err, duration)
 	d.callHook(d.cfg.OnFailure, config.JobEvent{Name: task.Name, Attempt: maxRetries + 1, Err: err, Duration: duration})
+	return outcomeFailed
 }
 
 // shutdownBeforeRetry waits delay before the next retry and reports whether
