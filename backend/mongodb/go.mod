@@ -4,7 +4,7 @@ go 1.22.2
 
 require (
 	github.com/zt4ff/gokue/v2 v2.0.0
-	go.mongodb.org/mongo-driver v1.17.9
+	go.mongodb.org/mongo-driver v1.17.10
 )
 
 require (
