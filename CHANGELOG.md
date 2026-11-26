@@ -5,6 +5,15 @@ All notable changes to gokue are documented here. The format follows
 [semantic versioning](https://semver.org). See CONTRIBUTING.md for which
 packages are covered by the compatibility promise.
 
+## [Unreleased]
+
+### Changed
+
+- `backend/mongodb` is now its own Go module,
+  `github.com/zt4ff/gokue/v2/backend/mongodb`, so the core module no longer
+  depends on the MongoDB driver. The import path is unchanged; projects that
+  import it need `go get github.com/zt4ff/gokue/v2/backend/mongodb` (#30).
+
 ## [2.0.0] - 2026-11-26
 
 First release covered by this changelog. It includes everything in v1.0.1 plus

@@ -28,6 +28,11 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      # backend/mongodb is a separate module; ./... above does not cover it.
+      - name: go vet (backend/mongodb)
+        working-directory: backend/mongodb
+        run: go vet ./...
+
       # Pinned so a new staticcheck release (which may require a newer Go)
       # cannot break CI. Bump deliberately.
       - name: Install staticcheck
@@ -38,8 +43,17 @@ jobs:
         if: matrix.go == 'stable'
         run: staticcheck ./...
 
+      - name: Run staticcheck (backend/mongodb)
+        if: matrix.go == 'stable'
+        working-directory: backend/mongodb
+        run: staticcheck ./...
+
       - name: Test with race detector
         run: go test -count=1 -race -coverprofile=coverage.txt -covermode=atomic ./...
+
+      - name: Test with race detector (backend/mongodb)
+        working-directory: backend/mongodb
+        run: go test -count=1 -race ./...
 
       # Smoke-runs the benchmarks; numbers are not compared (no regression gate).
       - name: Run benchmarks
@@ -65,6 +79,10 @@ jobs:
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.15.0
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.15.0
+          working-directory: backend/mongodb
 
   vulncheck:
     name: govulncheck
@@ -77,8 +95,11 @@ jobs:
           check-latest: true
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@v1.10.0
-      # Informational until the MongoDB backend moves to its own module (#30):
-      # fixes for its indirect dependencies need Go 1.25, above go.mod's minimum.
       - name: Run govulncheck
+        run: govulncheck ./...
+      # Informational: fixes for the MongoDB driver's indirect dependencies
+      # need Go 1.25, above the module's minimum.
+      - name: Run govulncheck (backend/mongodb)
         continue-on-error: true
+        working-directory: backend/mongodb
         run: govulncheck ./...
