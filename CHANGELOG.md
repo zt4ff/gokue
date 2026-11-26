@@ -7,6 +7,8 @@ packages are covered by the compatibility promise.
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-11-26
+
 ### Added
 
 - Persistent queues: `WithStore(store, codec)` saves jobs to a
@@ -107,6 +109,8 @@ and imports change from `github.com/zt4ff/gokue/...` to
 
 - Initial tagged version.
 
+[Unreleased]: https://github.com/zt4ff/gokue/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/zt4ff/gokue/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/zt4ff/gokue/compare/v1.0.1...v2.0.0
 [1.0.1]: https://github.com/zt4ff/gokue/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/zt4ff/gokue/releases/tag/v1.0.0
