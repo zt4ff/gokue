@@ -15,7 +15,6 @@ packages are covered by the compatibility promise.
   `examples/persistence` (a queue running jobs left in the store by an earlier
   one). CI now runs the examples (#52).
 
-||||||| f749af1
 ### Fixed
 
 - The MongoDB module path is now `github.com/zt4ff/gokue/backend/mongodb/v2`.
