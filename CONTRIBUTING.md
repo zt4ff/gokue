@@ -3,6 +3,9 @@
 Thanks for helping improve gokue. Bug reports, docs fixes, and pull requests are
 all welcome.
 
+Please follow the [Code of Conduct](CODE_OF_CONDUCT.md). Report security
+problems privately as described in [SECURITY.md](SECURITY.md), not as issues.
+
 ## Finding work
 
 Planned work is tracked as [GitHub issues](https://github.com/zt4ff/gokue/issues),
