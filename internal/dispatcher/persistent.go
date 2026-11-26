@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -188,11 +189,15 @@ func (d *Dispatcher) heartbeat(c *claimed, stop <-chan struct{}) {
 // runRecord decodes and runs a claimed record, then saves its outcome.
 func (d *Dispatcher) runRecord(rec backend.JobRecord) {
 	c := &claimed{rec: rec}
-	finish := func(status backend.JobStatus) {
+	finish := func(status backend.JobStatus, jobErr error) {
 		d.write(c, "finish", func(r *backend.JobRecord) {
 			now := time.Now().UTC()
 			r.Status = status
 			r.FinishedAt = &now
+			r.LastError = ""
+			if jobErr != nil {
+				r.LastError = jobErr.Error()
+			}
 		})
 	}
 	release := func() {
@@ -216,7 +221,7 @@ func (d *Dispatcher) runRecord(rec backend.JobRecord) {
 		d.local.Delete(rec.ID)
 		d.collector.IncFailed()
 		logger.LogJobFailure(d.logger, task.Name, int(rec.Attempts), err, 0)
-		finish(backend.StatusFailed)
+		finish(backend.StatusFailed, err)
 		return
 	}
 	task.Job = j
@@ -232,17 +237,17 @@ func (d *Dispatcher) runRecord(rec backend.JobRecord) {
 		defer close(done)
 		d.heartbeat(c, stop)
 	}()
-	result := d.safeExecute(task)
+	result, jobErr := d.safeExecute(task)
 	close(stop)
 	<-done
 
 	switch result {
 	case outcomeSucceeded:
-		finish(backend.StatusSucceeded)
+		finish(backend.StatusSucceeded, nil)
 	case outcomeAbandoned:
 		release()
 	default:
-		finish(backend.StatusFailed)
+		finish(backend.StatusFailed, jobErr)
 	}
 }
 
@@ -290,4 +295,39 @@ func (d *Dispatcher) pruneLocal() {
 		}
 		return true
 	})
+}
+
+// DeadJobs lists up to limit failed records, oldest first. limit <= 0 means
+// no limit.
+func (d *Dispatcher) DeadJobs(ctx context.Context, limit int64) ([]backend.JobRecord, error) {
+	if d.store == nil {
+		return nil, ErrNotPersistent
+	}
+	status := backend.StatusFailed
+	return d.store.List(ctx, backend.ListFilter{Status: &status, Limit: limit})
+}
+
+// Replay returns the failed record id to pending with its attempt count reset,
+// so a worker runs it again with a full set of retries.
+func (d *Dispatcher) Replay(ctx context.Context, id job.ID) error {
+	if d.store == nil {
+		return ErrNotPersistent
+	}
+	rec, err := d.store.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if rec.Status != backend.StatusFailed {
+		return fmt.Errorf("%w: job %s is %s", ErrNotFailed, id, rec.Status)
+	}
+	rec.Status = backend.StatusPending
+	rec.Attempts = 0
+	rec.StartedAt = nil
+	rec.FinishedAt = nil
+	rec.LastError = ""
+	if err := d.store.Update(ctx, rec); err != nil {
+		return err
+	}
+	d.wakeWorker()
+	return nil
 }

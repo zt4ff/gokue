@@ -46,6 +46,9 @@ type JobRecord struct {
 	CreatedAt  time.Time
 	StartedAt  *time.Time
 	FinishedAt *time.Time
+	// LastError is the error of the most recent failed attempt of a
+	// StatusFailed record, empty otherwise.
+	LastError string
 }
 
 // ListFilter narrows the results returned by JobStore.List.
