@@ -52,3 +52,33 @@ jobs:
           file: ./coverage.txt
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      # Runs the linters and the gofmt check configured in .golangci.yml.
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.15.0
+
+  vulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          check-latest: true
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.10.0
+      # Informational until the MongoDB backend moves to its own module (#30):
+      # fixes for its indirect dependencies need Go 1.25, above go.mod's minimum.
+      - name: Run govulncheck
+        continue-on-error: true
+        run: govulncheck ./...

@@ -1,0 +1,21 @@
+version: "2"
+
+linters:
+  # standard = errcheck, govet, ineffassign, staticcheck, unused
+  default: standard
+  enable:
+    - misspell
+    - unconvert
+  exclusions:
+    rules:
+      # Tests deliberately ignore Close errors and pass nil contexts to check
+      # the nil-context guards.
+      - path: _test\.go
+        linters: [errcheck]
+      - path: _test\.go
+        text: "SA1012|QF1006"
+        linters: [staticcheck]
+
+formatters:
+  enable:
+    - gofmt

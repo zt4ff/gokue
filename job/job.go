@@ -40,7 +40,7 @@ func NameOf(j Job) string {
 	}
 
 	typ := reflect.TypeOf(j)
-	for typ.Kind() == reflect.Ptr {
+	for typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
 	if typ.Name() != "" {
