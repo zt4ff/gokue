@@ -22,12 +22,14 @@ for background work within a single Go service — sending email, resizing image
 calling an API, and similar best-effort tasks — where adding an external broker
 would be unnecessary weight.
 
-The queue is **in-memory only**. Jobs do not survive a process restart, and no
-external service is required to use the core package.
+By default the queue is **in-memory**: jobs do not survive a process restart,
+and no external service is required. With `WithStore`, jobs are saved to a
+`backend.JobStore` and unfinished jobs run again after a crash or restart; see
+[Persistent queues](#persistent-queues).
 
 ## Features
 
-- Bounded in-memory queue with a configurable capacity.
+- Bounded in-memory queue with a configurable capacity (the default).
 - Fixed pool of worker goroutines.
 - Blocking (`Submit`), non-blocking (`TrySubmit`), and fire-and-forget (`Run`) submission.
 - Retries with `Constant`, `Linear`, `Exponential`, and `ExponentialJitter` backoff.
@@ -38,8 +40,9 @@ external service is required to use the core package.
 - Optional structured JSON logging via `WithLogger`.
 - Graceful shutdown that drains running and queued jobs (plus `CloseWithMode(ctx, gokue.ImmediateMode)` for an immediate stop).
 
-A standalone persistence layer also exists (`backend` and `backend/mongodb`). It
-is **not wired into the queue yet**; see [Status](#status).
+- Optional persistence through `WithStore`: at-least-once delivery, leases and
+  crash recovery on top of a `backend.JobStore` (in-memory and MongoDB stores
+  are included).
 
 ## Installation
 
