@@ -1,4 +1,4 @@
-module github.com/zt4ff/gokue
+module github.com/zt4ff/gokue/v2
 
 go 1.22.2
 

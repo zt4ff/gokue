@@ -5,10 +5,18 @@ All notable changes to gokue are documented here. The format follows
 [semantic versioning](https://semver.org). See CONTRIBUTING.md for which
 packages are covered by the compatibility promise.
 
-## [Unreleased]
+## [2.0.0] - 2026-11-26
 
 First release covered by this changelog. It includes everything in v1.0.1 plus
-the changes below.
+the changes below. Because of the breaking changes, the module path is now
+`github.com/zt4ff/gokue/v2`:
+
+```sh
+go get github.com/zt4ff/gokue/v2@v2.0.0
+```
+
+and imports change from `github.com/zt4ff/gokue/...` to
+`github.com/zt4ff/gokue/v2/...`.
 
 ### Features (carried over from v1.0.1)
 
@@ -40,6 +48,7 @@ the changes below.
 
 ### Changed
 
+- **Breaking:** module path is `github.com/zt4ff/gokue/v2` (#7).
 - **Breaking:** the `dispatcher` package moved to `internal/dispatcher`; use the
   re-exported `gokue` types instead (#23).
 - **Breaking:** `Queue.Run` returns an `error` (#17).
@@ -78,6 +87,6 @@ the changes below.
 
 - Initial tagged version.
 
-[Unreleased]: https://github.com/zt4ff/gokue/compare/v1.0.1...HEAD
+[2.0.0]: https://github.com/zt4ff/gokue/compare/v1.0.1...v2.0.0
 [1.0.1]: https://github.com/zt4ff/gokue/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/zt4ff/gokue/releases/tag/v1.0.0

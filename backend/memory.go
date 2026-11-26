@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/zt4ff/gokue/job"
+	"github.com/zt4ff/gokue/v2/job"
 )
 
 // MemoryStore is an in-memory JobStore. It is safe for concurrent use and is

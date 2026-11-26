@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zt4ff/gokue/backend"
+	"github.com/zt4ff/gokue/v2/backend"
 )
 
 func TestNewMongoDBConnection(t *testing.T) {

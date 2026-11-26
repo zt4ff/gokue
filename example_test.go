@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/zt4ff/gokue"
+	"github.com/zt4ff/gokue/v2"
 )
 
 type receiptEmail struct {

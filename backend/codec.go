@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/zt4ff/gokue/job"
+	"github.com/zt4ff/gokue/v2/job"
 )
 
 var (

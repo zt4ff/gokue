@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zt4ff/gokue/job"
+	"github.com/zt4ff/gokue/v2/job"
 )
 
 func newRecord(id string, created time.Time) JobRecord {
