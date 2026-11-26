@@ -151,14 +151,14 @@ func serializableType(sample job.Job) (reflect.Type, error) {
 // newValue returns a new value of typ that implements job.Job: a pointer to the
 // underlying type when typ is not already a pointer.
 func newValue(typ reflect.Type) reflect.Value {
-	if typ.Kind() == reflect.Ptr {
+	if typ.Kind() == reflect.Pointer {
 		return reflect.New(typ.Elem())
 	}
 	return reflect.New(typ)
 }
 
 func derefType(t reflect.Type) reflect.Type {
-	for t.Kind() == reflect.Ptr {
+	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	return t
