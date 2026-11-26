@@ -51,7 +51,7 @@ must survive a restart.
 
 | | gokue | [asynq](https://github.com/hibiken/asynq) | [River](https://github.com/riverqueue/river) | [gocraft/work](https://github.com/gocraft/work) | [errgroup](https://pkg.go.dev/golang.org/x/sync/errgroup) |
 | --- | --- | --- | --- | --- | --- |
-| Needs | nothing (a `JobStore` for persistence) | Redis | PostgreSQL | Redis | nothing |
+| Needs | nothing (a `JobStore` for persistence) | Redis | PostgreSQL or SQLite | Redis | nothing |
 | Jobs survive a restart | with `WithStore` | yes | yes | yes | no |
 | Workers in other processes | only through a shared store | yes | yes | yes | no |
 | Retries and backoff | yes | yes | yes | yes | no |
@@ -73,15 +73,15 @@ Choose gokue when:
 Choose something else when:
 
 - separate worker processes or machines must share the queue at scale: use
-  asynq or River;
+  asynq or River (gocraft/work's last release, v0.5.1, is from 2018);
 - a job must be enqueued atomically with other database writes: use River;
 - you need delayed, cron, priority or unique jobs today (they are on the
   [roadmap](ROADMAP.md)), or a dashboard;
 - you only need to run a few goroutines and collect the first error: use
   `errgroup`.
 
-The comparison reflects each project's documentation at the time of writing;
-check the projects for their current state.
+The comparison was checked in November 2026 against asynq v0.26.0, River
+v0.51.2, gocraft/work v0.5.1 and the `errgroup` package documentation.
 
 ## Installation
 
