@@ -24,7 +24,9 @@ breaking changes to them need a new major version (and module path suffix, e.g.
 - `backend`
 - `backend/mongodb`, a separate Go module (`backend/mongodb/go.mod`) so the
   core module does not depend on the MongoDB driver. Run `go vet`, `staticcheck`
-  and `go test` from that directory too when you change it. It is released
+  and `go test` from that directory too when you change it; set
+  `GOKUE_MONGODB_URI` (e.g. `mongodb://localhost:27017`) to include the
+  integration tests against a real server. It is released
   with its own tags, `backend/mongodb/vX.Y.Z`.
 
 `internal/dispatcher` and `internal/logger` are implementation details and may
