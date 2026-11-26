@@ -95,7 +95,7 @@ The MongoDB store is a separate module, so the core module does not pull in the
 MongoDB driver. Add it only if you use it:
 
 ```
-go get github.com/zt4ff/gokue/v2/backend/mongodb@latest
+go get github.com/zt4ff/gokue/backend/mongodb/v2@latest
 ```
 
 ## Quick start

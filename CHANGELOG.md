@@ -7,6 +7,14 @@ packages are covered by the compatibility promise.
 
 ## [Unreleased]
 
+### Fixed
+
+- The MongoDB module path is now `github.com/zt4ff/gokue/backend/mongodb/v2`.
+  The path announced in 2.1.0, `github.com/zt4ff/gokue/v2/backend/mongodb`,
+  could not be installed because Go requires the major-version suffix at the
+  end of a module path. Import the new path and install it with
+  `go get github.com/zt4ff/gokue/backend/mongodb/v2`.
+
 ## [2.1.0] - 2026-11-26
 
 ### Added

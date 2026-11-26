@@ -1,4 +1,4 @@
-module github.com/zt4ff/gokue/v2/backend/mongodb
+module github.com/zt4ff/gokue/backend/mongodb/v2
 
 go 1.22.2
 
