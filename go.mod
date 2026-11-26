@@ -3,7 +3,7 @@ module github.com/zt4ff/gokue/v2
 go 1.22.2
 
 require (
-	go.mongodb.org/mongo-driver v1.17.9
+	go.mongodb.org/mongo-driver v1.17.10
 	go.uber.org/zap v1.28.0
 )
 
