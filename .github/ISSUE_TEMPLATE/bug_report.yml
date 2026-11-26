@@ -1,0 +1,39 @@
+name: Bug report
+description: Something in gokue does not work as documented.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you expected to happen, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: The smallest program or test that shows the problem.
+      render: go
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: Error messages, panics, logs or test output.
+      render: text
+  - type: input
+    id: gokue-version
+    attributes:
+      label: gokue version
+      description: From go.mod, e.g. v2.0.0 or a commit hash.
+    validations:
+      required: true
+  - type: input
+    id: go-version
+    attributes:
+      label: Go version and OS
+      description: Output of `go version`.
+    validations:
+      required: true
