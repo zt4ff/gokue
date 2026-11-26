@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/zt4ff/gokue/internal/logger"
+	"github.com/zt4ff/gokue/v2/internal/logger"
 )
 
 // Memory Type

@@ -7,11 +7,11 @@ import (
 	"io"
 	"time"
 
-	"github.com/zt4ff/gokue/config"
-	"github.com/zt4ff/gokue/internal/dispatcher"
-	"github.com/zt4ff/gokue/internal/logger"
-	jobpkg "github.com/zt4ff/gokue/job"
-	"github.com/zt4ff/gokue/stats"
+	"github.com/zt4ff/gokue/v2/config"
+	"github.com/zt4ff/gokue/v2/internal/dispatcher"
+	"github.com/zt4ff/gokue/v2/internal/logger"
+	jobpkg "github.com/zt4ff/gokue/v2/job"
+	"github.com/zt4ff/gokue/v2/stats"
 )
 
 // Job is a task that can be executed by the queue.

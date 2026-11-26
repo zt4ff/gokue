@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zt4ff/gokue/config"
-	"github.com/zt4ff/gokue/internal/dispatcher"
-	logging "github.com/zt4ff/gokue/internal/logger"
+	"github.com/zt4ff/gokue/v2/config"
+	"github.com/zt4ff/gokue/v2/internal/dispatcher"
+	logging "github.com/zt4ff/gokue/v2/internal/logger"
 )
 
 func regressionConfig(workers, queueSize int) config.Config {

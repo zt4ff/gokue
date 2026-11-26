@@ -13,10 +13,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/zt4ff/gokue/config"
-	"github.com/zt4ff/gokue/internal/logger"
-	"github.com/zt4ff/gokue/job"
-	"github.com/zt4ff/gokue/stats"
+	"github.com/zt4ff/gokue/v2/config"
+	"github.com/zt4ff/gokue/v2/internal/logger"
+	"github.com/zt4ff/gokue/v2/job"
+	"github.com/zt4ff/gokue/v2/stats"
 )
 
 // ShutdownMode selects how CloseWithMode shuts the dispatcher down.

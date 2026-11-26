@@ -12,9 +12,9 @@ larger changes so work isn't duplicated.
 
 ## Public API
 
-From v0.1.0 the packages below follow [semantic versioning](https://semver.org);
-breaking changes to them need a major version bump (or a minor bump while on
-v0.x, noted in the changelog):
+From v2.0.0 the packages below follow [semantic versioning](https://semver.org);
+breaking changes to them need a new major version (and module path suffix, e.g.
+`/v3`). Record every user-visible change under `Unreleased` in CHANGELOG.md:
 
 - `gokue` (the `Queue` API, options, errors, `ShutdownMode`, `JobEvent`)
 - `config`, `stats`, `job`

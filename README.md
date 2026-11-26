@@ -9,7 +9,7 @@ worker pool with a bounded in-memory queue, and provides per-attempt timeouts,
 retries with configurable backoff, panic recovery, atomic statistics, and
 optional structured logging.
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/zt4ff/gokue.svg)](https://pkg.go.dev/github.com/zt4ff/gokue)
+[![Go Reference](https://pkg.go.dev/badge/github.com/zt4ff/gokue/v2.svg)](https://pkg.go.dev/github.com/zt4ff/gokue/v2)
 [![CI](https://github.com/zt4ff/gokue/actions/workflows/ci.yml/badge.svg)](https://github.com/zt4ff/gokue/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/zt4ff/gokue/branch/main/graph/badge.svg)](https://codecov.io/gh/zt4ff/gokue)
 
@@ -44,7 +44,7 @@ is **not wired into the queue yet**; see [Status](#status).
 ## Installation
 
 ```
-go get github.com/zt4ff/gokue@latest
+go get github.com/zt4ff/gokue/v2@latest
 ```
 
 Requires Go **1.22.2** or newer (the version declared in `go.mod`).
@@ -60,7 +60,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/zt4ff/gokue"
+	"github.com/zt4ff/gokue/v2"
 )
 
 // EmailJob is a data-only job.
@@ -204,7 +204,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/zt4ff/gokue"
+	"github.com/zt4ff/gokue/v2"
 )
 
 // Value receiver: both EmailJob and *EmailJob satisfy gokue.Job.

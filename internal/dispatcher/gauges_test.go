@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zt4ff/gokue/config"
-	"github.com/zt4ff/gokue/internal/dispatcher"
-	"github.com/zt4ff/gokue/stats"
+	"github.com/zt4ff/gokue/v2/config"
+	"github.com/zt4ff/gokue/v2/internal/dispatcher"
+	"github.com/zt4ff/gokue/v2/stats"
 )
 
 func mustWait(t *testing.T, cond func() bool) {

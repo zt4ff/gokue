@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/zt4ff/gokue"
+	"github.com/zt4ff/gokue/v2"
 )
 
 type hookRecorder struct {

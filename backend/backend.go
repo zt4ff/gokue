@@ -12,7 +12,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/zt4ff/gokue/job"
+	"github.com/zt4ff/gokue/v2/job"
 )
 
 // Status describes the lifecycle stage of a persisted job.

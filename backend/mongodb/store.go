@@ -10,8 +10,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	"github.com/zt4ff/gokue/backend"
-	"github.com/zt4ff/gokue/job"
+	"github.com/zt4ff/gokue/v2/backend"
+	"github.com/zt4ff/gokue/v2/job"
 )
 
 // jobDocument is the on-disk representation of a backend.JobRecord. It is kept
