@@ -347,3 +347,99 @@ func TestStoreSharedByTwoDispatchers(t *testing.T) {
 		}
 	}
 }
+
+func eventually(t *testing.T, cond func() bool) {
+	t.Helper()
+	if !waitFor(t, 5*time.Second, cond) {
+		t.Fatal("condition not met before timeout")
+	}
+}
+
+// A job that exhausts its retries is listed by DeadJobs with its last error,
+// and Replay runs it again with fresh attempts.
+func TestStoreDeadJobsAndReplay(t *testing.T) {
+	store := backend.NewMemoryStore()
+	cfg := storeConfig(t, store)
+	cfg.MaxRetries = 1
+	d := dispatcher.NewDispatcher(cfg, stats.NewCollector())
+	defer func() { _ = d.Close(context.Background()) }()
+
+	var fail sync.Mutex
+	failing := true
+	j := behave("dead", func(context.Context) error {
+		fail.Lock()
+		defer fail.Unlock()
+		if failing {
+			return errors.New("boom")
+		}
+		return nil
+	})
+	if err := d.Submit(context.Background(), dispatcher.Task{Name: "dead", Job: j}); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, func() bool { return statusCount(t, store, backend.StatusFailed) == 1 })
+
+	dead, err := d.DeadJobs(context.Background(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dead) != 1 || dead[0].LastError != "boom" || dead[0].FinishedAt == nil {
+		t.Fatalf("DeadJobs = %+v, want one record with LastError boom", dead)
+	}
+	if runsOf("dead") != 2 {
+		t.Fatalf("runs = %d, want 2", runsOf("dead"))
+	}
+
+	fail.Lock()
+	failing = false
+	fail.Unlock()
+	if err := d.Replay(context.Background(), dead[0].ID); err != nil {
+		t.Fatalf("Replay: %v", err)
+	}
+	eventually(t, func() bool { return statusCount(t, store, backend.StatusSucceeded) == 1 })
+
+	rec := onlyRecord(t, store)
+	if rec.LastError != "" || rec.Attempts != 1 {
+		t.Fatalf("replayed record = %+v, want no LastError and attempts 1", rec)
+	}
+	if err := d.Replay(context.Background(), rec.ID); !errors.Is(err, dispatcher.ErrNotFailed) {
+		t.Fatalf("Replay succeeded record = %v, want ErrNotFailed", err)
+	}
+	if err := d.Replay(context.Background(), "missing"); !errors.Is(err, backend.ErrNotFound) {
+		t.Fatalf("Replay missing = %v, want ErrNotFound", err)
+	}
+	if dead, err := d.DeadJobs(context.Background(), 0); err != nil || len(dead) != 0 {
+		t.Fatalf("DeadJobs after replay = %v, %v; want none", dead, err)
+	}
+}
+
+func TestStoreDeadJobsLimitAndDecodeError(t *testing.T) {
+	store := backend.NewMemoryStore()
+	for _, id := range []job.ID{"a", "b", "c"} {
+		if err := store.Save(context.Background(), backend.JobRecord{ID: id, Name: "unknown", Payload: []byte("{}"), CreatedAt: time.Now()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d := dispatcher.NewDispatcher(storeConfig(t, store), stats.NewCollector())
+	defer func() { _ = d.Close(context.Background()) }()
+	eventually(t, func() bool { return statusCount(t, store, backend.StatusFailed) == 3 })
+
+	dead, err := d.DeadJobs(context.Background(), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dead) != 2 || dead[0].LastError == "" {
+		t.Fatalf("DeadJobs(2) = %+v, want 2 records with a decode error", dead)
+	}
+}
+
+func TestDeadJobsRequireStore(t *testing.T) {
+	d := dispatcher.NewDispatcher(config.Default(), stats.NewCollector())
+	defer func() { _ = d.Close(context.Background()) }()
+	if _, err := d.DeadJobs(context.Background(), 0); !errors.Is(err, dispatcher.ErrNotPersistent) {
+		t.Fatalf("DeadJobs = %v, want ErrNotPersistent", err)
+	}
+	if err := d.Replay(context.Background(), "x"); !errors.Is(err, dispatcher.ErrNotPersistent) {
+		t.Fatalf("Replay = %v, want ErrNotPersistent", err)
+	}
+}

@@ -26,6 +26,7 @@ type jobDocument struct {
 	CreatedAt  time.Time         `bson:"created_at"`
 	StartedAt  *time.Time        `bson:"started_at,omitempty"`
 	FinishedAt *time.Time        `bson:"finished_at,omitempty"`
+	LastError  string            `bson:"last_error,omitempty"`
 }
 
 func toDocument(rec backend.JobRecord) jobDocument {
@@ -39,6 +40,7 @@ func toDocument(rec backend.JobRecord) jobDocument {
 		CreatedAt:  rec.CreatedAt,
 		StartedAt:  rec.StartedAt,
 		FinishedAt: rec.FinishedAt,
+		LastError:  rec.LastError,
 	}
 }
 
@@ -53,6 +55,7 @@ func fromDocument(doc jobDocument) backend.JobRecord {
 		CreatedAt:  doc.CreatedAt,
 		StartedAt:  doc.StartedAt,
 		FinishedAt: doc.FinishedAt,
+		LastError:  doc.LastError,
 	}
 }
 
@@ -194,6 +197,7 @@ func (s *MongoJobStore) Update(ctx context.Context, rec backend.JobRecord) error
 			"status":      rec.Status,
 			"started_at":  rec.StartedAt,
 			"finished_at": rec.FinishedAt,
+			"last_error":  rec.LastError,
 		},
 		"$inc": bson.M{"version": 1},
 	}

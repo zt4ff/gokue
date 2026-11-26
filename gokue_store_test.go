@@ -109,3 +109,51 @@ func TestWithStoreJobsSurviveQueueRestart(t *testing.T) {
 		t.Fatalf("stats = %+v", s)
 	}
 }
+
+type alwaysFailsJob struct{ N int }
+
+func (alwaysFailsJob) Process(context.Context) error { return errors.New("nope") }
+
+func TestQueueDeadJobsAndReplay(t *testing.T) {
+	store := backend.NewMemoryStore()
+	codec := backend.NewCodec()
+	if err := codec.Register("", alwaysFailsJob{}); err != nil {
+		t.Fatal(err)
+	}
+	q, err := NewQueue(WithStore(store, codec), WithMaxRetries(0), WithPollInterval(10*time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = q.Close(context.Background()) }()
+	if err := q.Submit(context.Background(), alwaysFailsJob{}); err != nil {
+		t.Fatal(err)
+	}
+
+	var dead []backend.JobRecord
+	deadline := time.Now().Add(5 * time.Second)
+	for len(dead) == 0 && time.Now().Before(deadline) {
+		if dead, err = q.DeadJobs(context.Background(), 10); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(dead) != 1 || dead[0].LastError != "nope" {
+		t.Fatalf("DeadJobs = %+v", dead)
+	}
+	if err := q.Replay(context.Background(), dead[0].ID); err != nil {
+		t.Fatalf("Replay: %v", err)
+	}
+
+	plain, err := NewQueue()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = plain.Close(context.Background()) }()
+	if _, err := plain.DeadJobs(context.Background(), 0); !errors.Is(err, ErrNotPersistent) {
+		t.Fatalf("DeadJobs on in-memory queue = %v, want ErrNotPersistent", err)
+	}
+	var nilQueue *Queue
+	if err := nilQueue.Replay(context.Background(), "x"); !errors.Is(err, ErrNilQueue) {
+		t.Fatalf("Replay on nil queue = %v, want ErrNilQueue", err)
+	}
+}

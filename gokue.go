@@ -55,6 +55,12 @@ var (
 	ErrInvalidConfig = config.ErrInvalidConfig
 	// ErrInvalidShutdownMode is returned by CloseWithMode for an unknown mode.
 	ErrInvalidShutdownMode = dispatcher.ErrInvalidShutdownMode
+	// ErrNotPersistent is returned by DeadJobs and Replay on a queue created
+	// without WithStore.
+	ErrNotPersistent = dispatcher.ErrNotPersistent
+	// ErrNotFailed is returned by Replay when the job is not in the failed
+	// state.
+	ErrNotFailed = dispatcher.ErrNotFailed
 )
 
 // ShutdownMode selects how CloseWithMode treats queued and running jobs.
@@ -451,4 +457,35 @@ func (q *Queue) Stats() stats.Snapshot {
 		return stats.Snapshot{}
 	}
 	return q.collector.Snapshot()
+}
+
+// DeadJobs returns up to limit jobs that failed for good (retries exhausted, a
+// retry predicate refused another attempt, or the payload could not be
+// decoded), oldest first. limit <= 0 returns all of them. Each record's
+// LastError holds the final error. It requires a queue created with WithStore
+// and returns ErrNotPersistent otherwise.
+func (q *Queue) DeadJobs(ctx context.Context, limit int64) ([]backend.JobRecord, error) {
+	if q == nil {
+		return nil, ErrNilQueue
+	}
+	if ctx == nil {
+		return nil, ErrNilCtx
+	}
+	return q.dispatcher.DeadJobs(ctx, limit)
+}
+
+// Replay puts the failed job id back in the queue with its attempt count reset,
+// so it runs again with a full set of retries (per-submit retry overrides are
+// not restored). It returns ErrNotFailed if the job is not failed,
+// backend.ErrNotFound if it does not exist, backend.ErrConflict if another
+// process changed it concurrently, and ErrNotPersistent on a queue created
+// without WithStore.
+func (q *Queue) Replay(ctx context.Context, id jobpkg.ID) error {
+	if q == nil {
+		return ErrNilQueue
+	}
+	if ctx == nil {
+		return ErrNilCtx
+	}
+	return q.dispatcher.Replay(ctx, id)
 }
