@@ -7,6 +7,12 @@ packages are covered by the compatibility promise.
 
 ## [Unreleased]
 
+### Added
+
+- Examples: `examples/http-offload` (HTTP server handing work to a queue) and
+  `examples/persistence` (a queue running jobs left in the store by an earlier
+  one). CI now runs the examples (#52).
+
 ### Fixed
 
 - The MongoDB module path is now `github.com/zt4ff/gokue/backend/mongodb/v2`.

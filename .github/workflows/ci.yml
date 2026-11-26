@@ -56,6 +56,12 @@ jobs:
         run: go test -count=1 -race ./...
 
       # Smoke-runs the benchmarks; numbers are not compared (no regression gate).
+      - name: Run examples
+        run: |
+          go run ./examples/persistence
+          go run ./examples/http-offload -run 2s
+          go run ./examples/graceful-shutdown -run 2s
+
       - name: Run benchmarks
         if: matrix.go == 'stable'
         run: go test -run='^$' -bench=. -benchmem -benchtime=10000x ./...
