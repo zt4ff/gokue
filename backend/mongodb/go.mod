@@ -3,7 +3,7 @@ module github.com/zt4ff/gokue/backend/mongodb/v2
 go 1.22.2
 
 require (
-	github.com/zt4ff/gokue/v2 v2.1.0
+	github.com/zt4ff/gokue/v2 v2.2.0
 	go.mongodb.org/mongo-driver v1.17.10
 )
 
