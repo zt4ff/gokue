@@ -70,6 +70,19 @@ type Task struct {
 	RetryDelay *time.Duration
 	// RetryPredicates overrides the global RetryPredicates for this task when non-nil.
 	RetryPredicates func(error) bool
+	// RunAt, when in the future, is the earliest time the task may start.
+	RunAt time.Time
+	// Delay, when non-nil, sets RunAt to SubmittedAt plus Delay.
+	Delay *time.Duration
+
+	// attempt is the 0-indexed attempt the task runs next, lastErr the error
+	// of the previous attempt and firstStart the start of attempt 0.
+	attempt    int
+	lastErr    error
+	firstStart time.Time
+	// holdsSlot reports that the task occupies a queue slot until a worker
+	// takes it.
+	holdsSlot bool
 
 	// ctx carries the submit context's values (not its cancellation) to the job.
 	ctx context.Context
@@ -115,8 +128,19 @@ type Dispatcher struct {
 	liveWorkers atomic.Int64
 	// logger provides structured logging for observability.
 	logger logger.Logger
-	// tasks is the channel for submitting tasks to workers.
+	// tasks carries tasks that are ready to run to workers.
 	tasks chan Task
+	// slots limits accepted tasks waiting to start, ready or delayed, to
+	// QueueSize. Retries do not take a slot.
+	slots chan struct{}
+	// schedule passes delayed tasks and retries to the scheduler, which sends
+	// them on due once their RunAt has passed.
+	schedule chan Task
+	due      chan Task
+	// scheduled is the number of tasks held by the scheduler (live gauge).
+	scheduled atomic.Int64
+	// work counts accepted in-memory tasks that have not finished.
+	work sync.WaitGroup
 	// quit is closed when the dispatcher shuts down, interrupting in-progress retry sleeps.
 	quit chan struct{}
 	// quitOnce ensures quit is closed exactly once across multiple Close calls and modes.
@@ -176,6 +200,11 @@ func NewDispatcher(cfg config.Config, collector *stats.Collector) *Dispatcher {
 		go d.reaper()
 	} else {
 		d.tasks = make(chan Task, cfg.QueueSize)
+		d.slots = make(chan struct{}, cfg.QueueSize)
+		d.schedule = make(chan Task)
+		d.due = make(chan Task)
+		d.wg.Add(1)
+		go d.scheduler()
 	}
 
 	for worker := 0; worker < cfg.WorkerCount; worker++ {
@@ -193,7 +222,8 @@ func NewDispatcher(cfg config.Config, collector *stats.Collector) *Dispatcher {
 
 // Submit adds a task to the dispatcher's queue, blocking until the task is enqueued or
 // the context is cancelled. It validates that the context and job are not nil and returns
-// ErrClosed if the dispatcher is closed.
+// ErrClosed if the dispatcher is closed. A task with a future RunAt is held
+// until then and takes a queue slot meanwhile.
 func (d *Dispatcher) Submit(ctx context.Context, task Task) error {
 	if ctx == nil {
 		return ErrNilCtx
@@ -215,10 +245,7 @@ func (d *Dispatcher) Submit(ctx context.Context, task Task) error {
 	}
 
 	select {
-	case d.tasks <- task:
-		d.collector.IncEnqueued()
-		logger.LogSubmitEnqueued(d.logger, task.Name)
-		return nil
+	case d.slots <- struct{}{}:
 	case <-ctx.Done():
 		d.collector.IncDropped()
 		logger.LogSubmitRejected(d.logger, task.Name, logger.ReasonContextCancelled)
@@ -227,6 +254,26 @@ func (d *Dispatcher) Submit(ctx context.Context, task Task) error {
 		logger.LogSubmitRejected(d.logger, task.Name, logger.ReasonDispatcherClosed)
 		return ErrClosed
 	}
+	d.enqueue(task)
+	return nil
+}
+
+// enqueue hands an accepted task, which holds a slot, to the workers or the
+// scheduler. The caller holds submitMu with closed false, so neither has quit
+// and neither send blocks for long: tasks has room for every slot and the
+// scheduler always accepts.
+func (d *Dispatcher) enqueue(task Task) {
+	task.holdsSlot = true
+	d.work.Add(1)
+	d.collector.IncEnqueued()
+	logger.LogSubmitEnqueued(d.logger, task.Name)
+	if task.RunAt.After(time.Now()) {
+		// Counted before the hand-off so Stats sees it once Submit returns.
+		d.scheduled.Add(1)
+		d.schedule <- task
+		return
+	}
+	d.tasks <- task
 }
 
 // prepareTask validates task and fills in its derived defaults. The job's
@@ -242,12 +289,20 @@ func prepareTask(ctx context.Context, task Task) (Task, error) {
 	if task.RetryDelay != nil && *task.RetryDelay < 0 {
 		return task, fmt.Errorf("%w: retry delay cannot be negative", ErrInvalidTask)
 	}
+	if task.Delay != nil && *task.Delay < 0 {
+		return task, fmt.Errorf("%w: delay cannot be negative", ErrInvalidTask)
+	}
 	if task.Name == "" {
 		task.Name = job.NameOf(task.Job)
 	}
 	if task.SubmittedAt.IsZero() {
 		task.SubmittedAt = time.Now().UTC()
 	}
+	if task.Delay != nil {
+		task.RunAt = task.SubmittedAt.Add(*task.Delay)
+		task.Delay = nil
+	}
+	task.attempt, task.lastErr, task.firstStart, task.holdsSlot = 0, nil, time.Time{}, false
 	task.ctx = context.WithoutCancel(ctx)
 	return task, nil
 }
@@ -276,9 +331,8 @@ func (d *Dispatcher) TrySubmit(ctx context.Context, task Task) error {
 	}
 
 	select {
-	case d.tasks <- task:
-		d.collector.IncEnqueued()
-		logger.LogSubmitEnqueued(d.logger, task.Name)
+	case d.slots <- struct{}{}:
+		d.enqueue(task)
 		return nil
 	default:
 		d.collector.IncDropped()
@@ -287,26 +341,23 @@ func (d *Dispatcher) TrySubmit(ctx context.Context, task Task) error {
 	}
 }
 
-// Close gracefully shuts down the dispatcher in drain mode, waiting for all workers
-// to finish processing their current tasks. It blocks until all workers have completed
-// or the context is cancelled.
+// Close gracefully shuts down the dispatcher in drain mode. It blocks until
+// every accepted job has finished, including delayed jobs and retries waiting
+// for their backoff, or until ctx is done.
 //
 // Behavior (Drain Mode):
 //   - Immediately rejects new submissions with ErrClosed.
-//   - Closes the tasks channel to indicate no more work will arrive.
-//   - Blocks waiting for all workers to finish draining the task queue,
-//     including any in-flight retries and their backoff delays.
-//   - Returns nil if all workers complete before context cancellation.
-//   - Returns ctx.Err() if context is cancelled during the wait. On cancellation
-//     the quit channel is closed so workers abandon remaining retry sleeps, drop
-//     jobs still waiting in the queue, and can exit promptly; workers may still
-//     be finishing their current attempt when Close returns.
+//   - Returns nil once nothing is queued, running or scheduled.
+//   - Returns ctx.Err() if ctx is done first. The quit channel is then closed:
+//     scheduled jobs and jobs still waiting in the queue are dropped, pending
+//     retries are abandoned, and workers exit after their current attempt,
+//     which may still be running when Close returns.
 //
-// Important: If ctx is cancelled before workers finish, Close returns ctx.Err()
-// but workers continue running in the background until they complete. Callers
-// must not tear down shared resources (e.g., the stats collector) immediately
-// after a cancelled Close. Use the returned error to distinguish between a
-// successful close and a timeout.
+// Persistent dispatchers do not wait for scheduled or queued records: they
+// stay in the store for the next process. Close only waits for running jobs.
+//
+// Callers must not tear down shared resources (e.g., the stats collector)
+// immediately after a cancelled Close.
 //
 // For emergency shutdown with immediate return, use CloseWithMode(ctx, ImmediateMode).
 func (d *Dispatcher) Close(ctx context.Context) error {
@@ -316,27 +367,12 @@ func (d *Dispatcher) Close(ctx context.Context) error {
 // CloseWithMode gracefully or immediately shuts down the dispatcher based on the mode.
 //
 // Modes:
-//   - DrainMode: Waits for all in-flight and queued jobs to complete, including
-//     retries and their backoff delays. Returns ctx.Err() if the wait times out.
-//     If the context is cancelled, retry sleeps are interrupted so workers can
-//     abandon remaining retries and exit.
-//   - ImmediateMode: Returns immediately without waiting for workers to complete.
-//     Retry sleeps are interrupted so workers finish their current attempt and
-//     stop instead of continuing to retry. Queued jobs are dropped.
+//   - DrainMode: as described on Close.
+//   - ImmediateMode: returns immediately. Workers finish their current attempt
+//     and stop; queued and scheduled jobs are dropped and pending retries are
+//     abandoned.
 //
-// Behavior (both modes):
-//   - Rejects new submissions with ErrClosed.
-//   - Closes the tasks channel.
-//
-// Drain Mode specifics:
-//   - Blocks until all workers finish or context is cancelled.
-//   - Returns nil on successful completion.
-//   - Returns ctx.Err() if context is cancelled.
-//
-// Immediate Mode specifics:
-//   - Returns immediately with nil.
-//   - Background workers continue until they finish current tasks.
-//   - Caller must not tear down shared resources immediately.
+// Both modes reject new submissions with ErrClosed.
 //
 // Example:
 //
@@ -344,8 +380,6 @@ func (d *Dispatcher) Close(ctx context.Context) error {
 //	defer cancel()
 //	if err := d.CloseWithMode(ctx, DrainMode); err != nil {
 //	    log.Printf("close timeout: %v", err)
-//	    // Attempt immediate shutdown
-//	    d.CloseWithMode(context.Background(), ImmediateMode)
 //	}
 func (d *Dispatcher) CloseWithMode(ctx context.Context, mode ShutdownMode) error {
 	if ctx == nil {
@@ -367,13 +401,9 @@ func (d *Dispatcher) CloseWithMode(ctx context.Context, mode ShutdownMode) error
 	})
 
 	d.submitMu.Lock()
-	if !d.closed {
-		d.closed = true
-		close(d.tasks) // stop accepting new tasks; workers drain the rest
-	}
+	d.closed = true
 	d.submitMu.Unlock()
 
-	// For immediate mode, signal workers to abandon retries and return without waiting.
 	if mode == ImmediateMode {
 		d.signalQuit()
 		duration := time.Since(startTime)
@@ -381,10 +411,11 @@ func (d *Dispatcher) CloseWithMode(ctx context.Context, mode ShutdownMode) error
 		return nil
 	}
 
-	// For drain mode, wait for all workers to finish. Retries and their backoff
-	// delays are allowed to complete so the queue truly drains.
+	// No task is accepted from here on, so work only goes down.
 	done := make(chan struct{})
 	go func() {
+		d.work.Wait()
+		d.signalQuit()
 		d.wg.Wait()
 		close(done)
 	}()
@@ -395,8 +426,6 @@ func (d *Dispatcher) CloseWithMode(ctx context.Context, mode ShutdownMode) error
 		logger.LogCloseComplete(d.logger, string(mode), duration, nil)
 		return nil
 	case <-ctx.Done():
-		// Interrupt in-flight retry sleeps so workers can abandon remaining
-		// retries and exit instead of running out the full backoff schedule.
 		d.signalQuit()
 		duration := time.Since(startTime)
 		logger.LogCloseComplete(d.logger, string(mode), duration, ctx.Err())
@@ -405,11 +434,13 @@ func (d *Dispatcher) CloseWithMode(ctx context.Context, mode ShutdownMode) error
 }
 
 // Stats returns a snapshot of the current execution statistics.
-// The live gauges QueueDepth, Running and IdleWorkers reflect the moment of the call.
+// The live gauges QueueDepth, Scheduled, Running and IdleWorkers reflect the
+// moment of the call.
 func (d *Dispatcher) Stats() stats.Snapshot {
 	s := d.collector.Snapshot()
 	running := d.running.Load()
 	s.QueueDepth = len(d.tasks)
+	s.Scheduled = int(d.scheduled.Load())
 	s.Running = int(running)
 	if idle := d.liveWorkers.Load() - running; idle > 0 {
 		s.IdleWorkers = int(idle)
@@ -417,62 +448,107 @@ func (d *Dispatcher) Stats() stats.Snapshot {
 	return s
 }
 
-// worker processes tasks from the dispatcher's queue until it is closed.
-// Once quit is signalled, tasks still waiting in the queue are dropped instead
-// of executed.
+// Backlog is the number of accepted in-memory jobs that have not started,
+// queued or delayed, which together are limited to QueueSize. It is 0 for a
+// persistent dispatcher.
+func (d *Dispatcher) Backlog() int {
+	return len(d.slots)
+}
+
+// worker runs ready tasks and tasks the scheduler hands over until quit.
+// Once quit is signalled, tasks still waiting are dropped instead of executed.
 func (d *Dispatcher) worker() {
 	defer d.wg.Done()
 	defer d.liveWorkers.Add(-1)
 
-	for task := range d.tasks {
+	for {
+		var task Task
+		select {
+		case task = <-d.tasks:
+		case task = <-d.due:
+		case <-d.quit:
+			d.dropQueued()
+			return
+		}
 		select {
 		case <-d.quit:
-			d.collector.IncDropped()
-			logger.LogJobAbandoned(d.logger, task.Name, 0, logger.ReasonDispatcherShutdown, 0)
+			d.abandon(task)
 			continue
 		default:
 		}
+		d.releaseSlot(&task)
 		d.running.Add(1)
-		_, _ = d.safeExecute(task)
+		d.run(task)
 		d.running.Add(-1)
 	}
+}
+
+// run executes one attempt of task. A retry goes to the scheduler, so the
+// worker is free during the backoff; once shutdown has started it is
+// abandoned instead.
+func (d *Dispatcher) run(task Task) {
+	if task.firstStart.IsZero() {
+		task.firstStart = time.Now()
+	}
+	result, delay, err := d.safeExecute(task)
+	if result != outcomeRetry {
+		d.work.Done()
+		return
+	}
+	task.attempt++
+	task.lastErr = err
+	task.RunAt = time.Now().Add(delay)
+	d.scheduled.Add(1)
+	select {
+	case <-d.quit:
+	default:
+		select {
+		case d.schedule <- task:
+			return
+		case <-d.quit:
+		}
+	}
+	d.scheduled.Add(-1)
+	d.abandon(task)
 }
 
 // safeExecute runs execute and recovers from panics in the dispatcher's own
 // logic (not the job, which runJob already guards) so that the worker keeps
 // serving the queue instead of silently shrinking the pool.
-// It also returns the error of the last failed attempt.
-func (d *Dispatcher) safeExecute(task Task) (result outcome, lastErr error) {
+func (d *Dispatcher) safeExecute(task Task) (result outcome, delay time.Duration, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			logger.LogWorkerPanic(d.logger, recovered)
-			result, lastErr = outcomeFailed, fmt.Errorf("gokue: dispatcher panic: %v", recovered)
+			result, delay, err = outcomeFailed, 0, fmt.Errorf("gokue: dispatcher panic: %v", recovered)
 		}
 	}()
 	return d.execute(task)
 }
 
-// outcome is how execute finished a task.
+// outcome is how one attempt of a task finished.
 type outcome int
 
 const (
 	outcomeSucceeded outcome = iota
 	outcomeFailed
-	// outcomeAbandoned means shutdown interrupted the task's remaining retries.
-	outcomeAbandoned
+	// outcomeRetry means the attempt failed and the task should run again
+	// after the returned delay.
+	outcomeRetry
 )
 
-// execute runs a task with retry logic based on the dispatcher's configuration.
-// It attempts to execute the job up to MaxRetries times with configurable backoff delays.
-// Per-task MaxRetries and RetryDelay overrides are honored when set on the Task.
-// The retry sleep is interruptible via the dispatcher's quit channel so that Close
-// is responsive. Statistics are updated after each execution attempt.
+// execute runs attempt task.attempt of task and records its statistics,
+// logs and hooks. On a retryable failure it returns outcomeRetry and the
+// backoff before the next attempt; the caller schedules it. Per-task
+// MaxRetries, RetryDelay and RetryPredicates overrides are honored.
 //
 // IncRetried tracks individual retry attempts, not retried tasks — a task retried
 // 3 times increments the counter 3 times.
-func (d *Dispatcher) execute(task Task) (outcome, error) {
-	startTime := time.Now()
-	var err error
+func (d *Dispatcher) execute(task Task) (outcome, time.Duration, error) {
+	startTime := task.firstStart
+	if startTime.IsZero() {
+		startTime = time.Now()
+	}
+	attempt := task.attempt
 
 	maxRetries := d.cfg.MaxRetries
 	if task.MaxRetries != nil {
@@ -489,79 +565,45 @@ func (d *Dispatcher) execute(task Task) (outcome, error) {
 		retryPredicates = task.RetryPredicates
 	}
 
-	for attempt := 0; attempt <= maxRetries; attempt++ {
-		logger.LogJobProcessing(d.logger, task.Name, attempt+1)
+	logger.LogJobProcessing(d.logger, task.Name, attempt+1)
 
-		err = runJob(task.ctx, task.Name, task.Job, d.cfg.JobTimeout)
-		var panicErr *PanicError
-		if errors.As(err, &panicErr) {
-			logger.LogJobPanic(d.logger, task.Name, attempt+1, panicErr.Value, panicErr.Stack)
-		}
-		if err == nil {
-			duration := time.Since(startTime)
-			d.collector.IncProcessed()
-			logger.LogJobSuccess(d.logger, task.Name, duration)
-			d.callHook(d.cfg.OnSuccess, config.JobEvent{Name: task.Name, Attempt: attempt + 1, Duration: duration})
-			return outcomeSucceeded, nil
-		}
-
-		// The predicate only decides whether to retry, so skip it when no
-		// retry remains.
-		if attempt < maxRetries && retryPredicates != nil && !retryPredicates(err) {
-			// retry predicate blocked retries; mark final failure immediately
-			duration := time.Since(startTime)
-			d.collector.IncRetryPredicatesFailed()
-			d.collector.IncFailed()
-			logger.LogJobFailure(d.logger, task.Name, attempt+1, err, duration)
-			d.callHook(d.cfg.OnFailure, config.JobEvent{Name: task.Name, Attempt: attempt + 1, Err: err, Duration: duration})
-			return outcomeFailed, err
-		}
-
-		if attempt < maxRetries {
-			d.collector.IncRetried()
-			delay := retryDelay(retryBaseDelay, d.cfg.MaxRetryDelay, attempt, d.cfg.BackoffStrategy)
-			logger.LogJobRetry(d.logger, task.Name, attempt+1, err, delay)
-			d.callHook(d.cfg.OnRetry, config.JobEvent{Name: task.Name, Attempt: attempt + 1, Err: err, Duration: time.Since(startTime), RetryDelay: delay})
-
-			if d.shutdownBeforeRetry(delay) {
-				// dispatcher is shutting down; abandon remaining retries
-				d.collector.IncFailed()
-				duration := time.Since(startTime)
-				logger.LogJobAbandoned(d.logger, task.Name, attempt+1, logger.ReasonDispatcherShutdown, duration)
-				d.callHook(d.cfg.OnFailure, config.JobEvent{Name: task.Name, Attempt: attempt + 1, Err: err, Duration: duration})
-				return outcomeAbandoned, err
-			}
-		}
+	err := runJob(task.ctx, task.Name, task.Job, d.cfg.JobTimeout)
+	var panicErr *PanicError
+	if errors.As(err, &panicErr) {
+		logger.LogJobPanic(d.logger, task.Name, attempt+1, panicErr.Value, panicErr.Stack)
+	}
+	if err == nil {
+		duration := time.Since(startTime)
+		d.collector.IncProcessed()
+		logger.LogJobSuccess(d.logger, task.Name, duration)
+		d.callHook(d.cfg.OnSuccess, config.JobEvent{Name: task.Name, Attempt: attempt + 1, Duration: duration})
+		return outcomeSucceeded, 0, nil
 	}
 
-	// All retries exhausted
+	// The predicate only decides whether to retry, so skip it when no
+	// retry remains.
+	if attempt < maxRetries && retryPredicates != nil && !retryPredicates(err) {
+		duration := time.Since(startTime)
+		d.collector.IncRetryPredicatesFailed()
+		d.collector.IncFailed()
+		logger.LogJobFailure(d.logger, task.Name, attempt+1, err, duration)
+		d.callHook(d.cfg.OnFailure, config.JobEvent{Name: task.Name, Attempt: attempt + 1, Err: err, Duration: duration})
+		return outcomeFailed, 0, err
+	}
+
+	if attempt < maxRetries {
+		d.collector.IncRetried()
+		delay := retryDelay(retryBaseDelay, d.cfg.MaxRetryDelay, attempt, d.cfg.BackoffStrategy)
+		logger.LogJobRetry(d.logger, task.Name, attempt+1, err, delay)
+		d.callHook(d.cfg.OnRetry, config.JobEvent{Name: task.Name, Attempt: attempt + 1, Err: err, Duration: time.Since(startTime), RetryDelay: delay})
+		return outcomeRetry, delay, err
+	}
+
 	duration := time.Since(startTime)
 	d.collector.IncFailed()
-	logger.LogJobFailure(d.logger, task.Name, maxRetries+1, err, duration)
-	d.callHook(d.cfg.OnFailure, config.JobEvent{Name: task.Name, Attempt: maxRetries + 1, Err: err, Duration: duration})
-	return outcomeFailed, err
-}
-
-// shutdownBeforeRetry waits delay before the next retry and reports whether
-// the dispatcher began shutting down first. Shutdown is checked even when
-// delay is zero.
-func (d *Dispatcher) shutdownBeforeRetry(delay time.Duration) bool {
-	select {
-	case <-d.quit:
-		return true
-	default:
-	}
-	if delay <= 0 {
-		return false
-	}
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-	select {
-	case <-timer.C:
-		return false
-	case <-d.quit:
-		return true
-	}
+	logger.LogJobFailure(d.logger, task.Name, attempt+1, err, duration)
+	d.callHook(d.cfg.OnFailure, config.JobEvent{Name: task.Name, Attempt: attempt + 1, Err: err, Duration: duration})
+	return outcomeFailed, 0, err
 }
 
 // callHook invokes a lifecycle hook, recovering from panics so a faulty hook

@@ -80,11 +80,12 @@ func (s *MemoryStore) Claim(ctx context.Context) (JobRecord, error) {
 		return JobRecord{}, ErrStoreClosed
 	}
 
+	now := time.Now().UTC()
 	var chosen job.ID
 	var chosenRec JobRecord
 	found := false
 	for id, rec := range s.records {
-		if rec.Status != StatusPending {
+		if rec.Status != StatusPending || (rec.RunAt != nil && rec.RunAt.After(now)) {
 			continue
 		}
 		if !found || rec.CreatedAt.Before(chosenRec.CreatedAt) ||
@@ -96,7 +97,6 @@ func (s *MemoryStore) Claim(ctx context.Context) (JobRecord, error) {
 		return JobRecord{}, ErrNotFound
 	}
 
-	now := time.Now().UTC()
 	chosenRec.Status = StatusRunning
 	chosenRec.StartedAt = &now
 	chosenRec.Attempts++
@@ -234,6 +234,10 @@ func cloneRecord(rec JobRecord) JobRecord {
 	if rec.FinishedAt != nil {
 		finished := *rec.FinishedAt
 		out.FinishedAt = &finished
+	}
+	if rec.RunAt != nil {
+		runAt := *rec.RunAt
+		out.RunAt = &runAt
 	}
 	return out
 }

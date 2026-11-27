@@ -37,8 +37,12 @@ type Snapshot struct {
 	// QueueDepth is the number of jobs currently waiting in the queue.
 	// It is a live gauge filled in by Dispatcher.Stats and Queue.Stats.
 	QueueDepth int
-	// Running is the number of jobs currently being executed, including jobs
-	// waiting between retry attempts. Live gauge.
+	// Scheduled is the number of in-memory jobs waiting for their run time:
+	// delayed jobs and retries waiting for their backoff. Live gauge; always
+	// 0 for persistent queues, whose scheduled jobs stay in the store.
+	Scheduled int
+	// Running is the number of jobs currently being executed. Jobs waiting
+	// between retry attempts are counted in Scheduled instead. Live gauge.
 	Running int
 	// IdleWorkers is the number of live workers not currently running a job.
 	// Live gauge.

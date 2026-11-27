@@ -14,6 +14,23 @@ packages are covered by the compatibility promise.
   (200 when ok, 503 otherwise) for readiness probes (#45).
 - `Queue.AdminHandler` serves `GET /stats`, `GET /dead` (the dead-letter queue,
   without payloads) and `POST /dead/{id}/replay` as JSON for operators (#47).
+- Delayed jobs: `Delay` and `RunAt` submit options. Persistent queues save the
+  run time as `backend.JobRecord.RunAt` (`run_at` in MongoDB), so delayed jobs
+  survive restarts. New `Scheduled` gauge in `stats.Snapshot` (#35).
+
+### Changed
+
+- Retries no longer hold a worker during their backoff; the job waits in the
+  scheduler (in memory) or as a pending record with `RunAt` (persistent), so
+  pending retries of persistent queues survive restarts. `Running` no longer
+  counts jobs waiting between attempts, and jobs can finish out of submission
+  order while another job backs off (#35).
+- `JobStore.Claim` must not claim pending records whose `RunAt` is in the
+  future. Custom stores that ignore `RunAt` run delayed jobs and retries early
+  (#35).
+- Persistent queues: each attempt is a separate claim, so `JobRecord.Attempts`
+  counts attempts, and a job requeued after a crash uses up one attempt (#35).
+- Delayed jobs count against `QueueSize` and towards `Health` saturation (#35).
 
 ## [2.2.0] - 2026-11-26
 

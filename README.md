@@ -449,6 +449,25 @@ err = q.Submit(ctx, job, gokue.RetryIf(func(error) bool { return true }))
 When the predicate returns `false`, the job is marked failed immediately and the
 `RetryPredicatesFailed` statistic is incremented.
 
+A job waiting for its next retry does not hold a worker: it is set aside until
+its backoff has passed (counted in the `Scheduled` gauge), and the worker moves
+on to other jobs.
+
+### Delayed jobs
+
+`Delay` and `RunAt` hold a job until a later time:
+
+```go
+q.Submit(ctx, SendReminder{UserID: 42}, gokue.Delay(10*time.Minute))
+q.Submit(ctx, Report{}, gokue.RunAt(time.Date(2026, 12, 1, 9, 0, 0, 0, time.UTC)))
+```
+
+A zero or past `RunAt` runs the job as soon as possible. On an in-memory queue a
+delayed job counts against `QueueSize` until it starts, and is lost if the
+process exits. On a persistent queue it is saved with its run time (`RunAt` on
+the record) and runs after a restart; idle workers notice it within one
+`PollInterval` of its run time, or on time in the process that submitted it.
+
 ### Lifecycle hooks
 
 `WithOnSuccess`, `WithOnFailure` and `WithOnRetry` call a function with a
@@ -468,9 +487,10 @@ q, err := gokue.NewQueue(
 
 ### Graceful shutdown
 
-`Close` rejects new submissions and waits for running and queued jobs to finish,
-including retries and their backoff delays. It returns the context error if the
-deadline is reached first.
+`Close` rejects new submissions and waits for running, queued and delayed jobs
+to finish, including retries waiting for their backoff. A job delayed far into
+the future therefore holds `Close` until its context ends. It returns the
+context error if the deadline is reached first.
 
 ```go
 ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -485,8 +505,9 @@ if err := q.Close(ctx); err != nil {
 }
 ```
 
-If the close context ends first, jobs still waiting in the queue are dropped
-(counted in `Dropped`) and pending retries are abandoned. A `Submit` blocked on a
+If the close context ends first, jobs still waiting in the queue and delayed
+jobs are dropped (counted in `Dropped`) and pending retries are abandoned
+(counted in `Failed`). A `Submit` blocked on a
 full queue is released with `gokue.ErrClosed` as soon as `Close` is called.
 
 For a complete program that wires SIGINT/SIGTERM to `Close`, see
@@ -548,7 +569,8 @@ Log lines are JSON with the zap production encoder, for example:
 ### Health checks
 
 `Queue.Health` reports whether the queue can take work: `ok`, `saturated`
-(the queue is full, so `Submit` blocks and `TrySubmit` returns `ErrQueueFull`)
+(queued and delayed jobs fill `QueueSize`, so `Submit` blocks and `TrySubmit`
+returns `ErrQueueFull`)
 or `closed` (after `Close`). Persistent queues have no capacity limit and are
 never saturated. `HealthHandler` serves it as JSON, with 200 for `ok` and 503
 otherwise, so it can back a readiness probe:
@@ -602,8 +624,8 @@ What changes compared with the in-memory queue:
   full queue, `TrySubmit` never returns `ErrQueueFull`, and `Stats().QueueDepth`
   is 0.
 - **Shutdown.** `Close` finishes the jobs this process already claimed and
-  leaves the rest in the store for the next start. A retry abandoned by
-  shutdown goes back to pending.
+  leaves the rest in the store for the next start, including delayed jobs and
+  retries waiting for their backoff, which are pending records with `RunAt` set.
 - **Records are kept.** Finished records stay in the store as `succeeded` or
   `failed`; delete them with `JobStore.Delete` if you do not need the history.
 - **Dead letters.** `failed` records are the dead-letter queue: jobs that ran
@@ -730,6 +752,8 @@ exported fields) with `backend.ErrNoSerializableFields`.
 | `MaxRetries` | `int` | Overrides the queue-level `MaxRetries` for this job. Must be `>= 0`. |
 | `RetryDelay` | `time.Duration` | Overrides the queue-level `RetryDelay` for this job. Must be `>= 0`. |
 | `RetryIf` | `func(error) bool` | Overrides the queue-level retry predicate for this job. |
+| `Delay` | `time.Duration` | Holds the job for this long before it may run. Must be `>= 0`. |
+| `RunAt` | `time.Time` | Holds the job until this time. Of `Delay` and `RunAt`, the last one given wins. |
 
 Invalid per-submission values make `Submit`/`TrySubmit` return a wrapped
 `ErrInvalidTask`.
@@ -775,9 +799,9 @@ Invalid per-submission values make `Submit`/`TrySubmit` return a wrapped
 
 - **Concurrency:** `Queue` methods are safe for concurrent use. Statistics are updated with lock-free atomic counters.
 - **Ordering:** jobs are enqueued in submission order into a buffered channel.
-  With more than one worker, completion order is not guaranteed. A job that is
-  retrying occupies its worker for the whole retry schedule, so it can hold up
-  other jobs on that worker.
+  With more than one worker, completion order is not guaranteed. Delayed jobs
+  and retries run in order of their run time once it has passed; a retrying job
+  does not occupy a worker during its backoff.
 - **Attempts:** each job is attempted once, plus up to `MaxRetries` retries. A job
   that fails and is retried runs more than once; write jobs to be idempotent where
   that matters.
@@ -803,10 +827,10 @@ Invalid per-submission values make `Submit`/`TrySubmit` return a wrapped
   `job_panic` event), which then goes through the normal retry and failure path. Panics inside
   dispatcher internals are recovered per job, so the process does not crash and
   the worker keeps serving the queue.
-- **Shutdown:** in drain mode, `Close` waits for all jobs, including retries and
-  their delays. If the close context ends first, it returns the context error and
-  interrupts pending retry sleeps, but workers may still be finishing; do not tear
-  down shared resources immediately after a cancelled `Close`.
+- **Shutdown:** in drain mode, `Close` waits for all jobs, including delayed jobs
+  and pending retries. If the close context ends first, it returns the context
+  error and drops what is still waiting, but workers may still be finishing; do
+  not tear down shared resources immediately after a cancelled `Close`.
 - **Timeouts:** `JobTimeout` applies per attempt, not to the whole retry schedule.
 
 ## Testing

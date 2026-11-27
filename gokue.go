@@ -104,6 +104,27 @@ func RetryIf(predicate func(error) bool) SubmitOption {
 	}
 }
 
+// Delay returns a SubmitOption that holds the job for d before it may run.
+// A negative d makes Submit return an error wrapping ErrInvalidTask. On an
+// in-memory queue the delayed job counts against QueueSize until it starts;
+// on a persistent queue it is saved with its run time and survives restarts.
+// Of Delay and RunAt, the last one given wins.
+func Delay(d time.Duration) SubmitOption {
+	return func(t *dispatcher.Task) {
+		t.Delay = &d
+		t.RunAt = time.Time{}
+	}
+}
+
+// RunAt returns a SubmitOption that holds the job until t. A zero or past t
+// runs the job as soon as possible. See Delay.
+func RunAt(t time.Time) SubmitOption {
+	return func(task *dispatcher.Task) {
+		task.RunAt = t
+		task.Delay = nil
+	}
+}
+
 // Queue manages job submission, execution, and statistics using a pool of workers.
 type Queue struct {
 	// config holds the queue configuration.
