@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"sync/atomic"
 	"time"
 
 	"github.com/zt4ff/gokue/v2/backend"
@@ -111,6 +112,8 @@ type Queue struct {
 	dispatcher *dispatcher.Dispatcher
 	// collector tracks execution statistics.
 	collector *stats.Collector
+	// closed is set once Close or CloseWithMode is called.
+	closed atomic.Bool
 }
 
 // WithMongoDB sets Config.MemoryType to config.MongoDB.
@@ -441,6 +444,9 @@ func (q *Queue) CloseWithMode(ctx context.Context, mode ShutdownMode) error {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, q.config.ShutdownTimeout)
 		defer cancel()
+	}
+	if mode == DrainMode || mode == ImmediateMode {
+		q.closed.Store(true)
 	}
 	return q.dispatcher.CloseWithMode(ctx, mode)
 }

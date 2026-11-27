@@ -7,6 +7,12 @@ packages are covered by the compatibility promise.
 
 ## [Unreleased]
 
+### Added
+
+- `Queue.Health` reports `ok`, `saturated` or `closed` with queue depth,
+  capacity and worker gauges, and `Queue.HealthHandler` serves it as JSON
+  (200 when ok, 503 otherwise) for readiness probes (#45).
+
 ## [2.2.0] - 2026-11-26
 
 ### Added
