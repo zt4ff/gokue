@@ -635,6 +635,25 @@ The design is described in
 [examples/persistence](examples/persistence/main.go) shows a second queue
 running the jobs a first one left in the store.
 
+### Admin endpoints
+
+`Queue.AdminHandler` serves stats and the dead-letter queue over HTTP for
+operators. Mount it under a prefix with `http.StripPrefix`:
+
+```go
+mux.Handle("/admin/queue/", http.StripPrefix("/admin/queue", q.AdminHandler()))
+```
+
+| Route | Response |
+| --- | --- |
+| `GET /stats` | `Stats()` as JSON |
+| `GET /dead?limit=N` | failed jobs (ID, name, attempts, times, `last_error`; no payload), oldest first; default limit 100, `0` for all |
+| `POST /dead/{id}/replay` | `Replay`; 204, or 404 unknown ID, 409 not failed or changed concurrently |
+
+The dead-letter routes need `WithStore` and return 501 otherwise. The handler
+has no authentication and replay changes state, so serve it on an internal
+listener or behind your own auth middleware.
+
 ### Persistence layer (standalone)
 
 `backend.Codec` serializes jobs to JSON, and a `backend.JobStore` stores the
