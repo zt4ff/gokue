@@ -9,6 +9,9 @@ packages are covered by the compatibility promise.
 
 ### Added
 
+- `Queue.Health` reports `ok`, `saturated` or `closed` with queue depth,
+  capacity and worker gauges, and `Queue.HealthHandler` serves it as JSON
+  (200 when ok, 503 otherwise) for readiness probes (#45).
 - `Queue.AdminHandler` serves `GET /stats`, `GET /dead` (the dead-letter queue,
   without payloads) and `POST /dead/{id}/replay` as JSON for operators (#47).
 

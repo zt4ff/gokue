@@ -545,6 +545,22 @@ Log lines are JSON with the zap production encoder, for example:
 {"level":"info","ts":1791817682.6266255,"msg":"dispatcher_close_started","mode":"drain"}
 ```
 
+### Health checks
+
+`Queue.Health` reports whether the queue can take work: `ok`, `saturated`
+(the queue is full, so `Submit` blocks and `TrySubmit` returns `ErrQueueFull`)
+or `closed` (after `Close`). Persistent queues have no capacity limit and are
+never saturated. `HealthHandler` serves it as JSON, with 200 for `ok` and 503
+otherwise, so it can back a readiness probe:
+
+```go
+mux.Handle("/healthz/queue", q.HealthHandler())
+```
+
+```json
+{"status":"ok","queue_depth":3,"queue_size":1024,"running":4,"idle_workers":0}
+```
+
 ### Persistent queues
 
 By default jobs live in memory and are lost when the process exits. With
