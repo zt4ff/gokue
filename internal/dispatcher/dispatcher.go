@@ -268,6 +268,8 @@ func (d *Dispatcher) enqueue(task Task) {
 	d.collector.IncEnqueued()
 	logger.LogSubmitEnqueued(d.logger, task.Name)
 	if task.RunAt.After(time.Now()) {
+		// Counted before the hand-off so Stats sees it once Submit returns.
+		d.scheduled.Add(1)
 		d.schedule <- task
 		return
 	}
@@ -496,6 +498,7 @@ func (d *Dispatcher) run(task Task) {
 	task.attempt++
 	task.lastErr = err
 	task.RunAt = time.Now().Add(delay)
+	d.scheduled.Add(1)
 	select {
 	case <-d.quit:
 	default:
@@ -505,6 +508,7 @@ func (d *Dispatcher) run(task Task) {
 		case <-d.quit:
 		}
 	}
+	d.scheduled.Add(-1)
 	d.abandon(task)
 }
 

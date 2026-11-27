@@ -51,7 +51,6 @@ func (d *Dispatcher) scheduler() {
 		select {
 		case t := <-d.schedule:
 			heap.Push(&h, t)
-			d.scheduled.Add(1)
 		case due <- next:
 			heap.Pop(&h)
 			d.scheduled.Add(-1)
