@@ -7,6 +7,11 @@ packages are covered by the compatibility promise.
 
 ## [Unreleased]
 
+### Added
+
+- `Queue.AdminHandler` serves `GET /stats`, `GET /dead` (the dead-letter queue,
+  without payloads) and `POST /dead/{id}/replay` as JSON for operators (#47).
+
 ## [2.2.0] - 2026-11-26
 
 ### Added
