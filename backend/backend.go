@@ -47,8 +47,11 @@ type JobRecord struct {
 	StartedAt  *time.Time
 	FinishedAt *time.Time
 	// LastError is the error of the most recent failed attempt of a
-	// StatusFailed record, empty otherwise.
+	// StatusFailed record or of a pending record waiting to be retried.
 	LastError string
+	// RunAt, when set, is the earliest time a pending record may be claimed.
+	// It is set for delayed jobs and for retries waiting for their backoff.
+	RunAt *time.Time
 }
 
 // ListFilter narrows the results returned by JobStore.List.
@@ -73,9 +76,11 @@ type JobStore interface {
 	// Get returns the record with the given ID, or ErrNotFound.
 	Get(ctx context.Context, id job.ID) (JobRecord, error)
 
-	// Claim atomically selects the oldest pending record, marks it running,
-	// sets StartedAt, increments Attempts and increments Version. It returns
-	// ErrNotFound when no pending record is available.
+	// Claim atomically selects the oldest (by CreatedAt, then ID) pending
+	// record whose RunAt is unset or not after now, marks it running, sets
+	// StartedAt, increments Attempts and increments Version. It returns
+	// ErrNotFound when no such record is available. Records with a later
+	// RunAt must not be claimed.
 	Claim(ctx context.Context) (JobRecord, error)
 
 	// Update writes rec if the stored Version matches rec.Version. On success

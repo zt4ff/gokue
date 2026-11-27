@@ -351,3 +351,34 @@ func ids(recs []backend.JobRecord) []job.ID {
 	}
 	return out
 }
+
+func TestIntegrationClaimSkipsFutureRunAt(t *testing.T) {
+	store := newIntegrationStore(t)
+	ctx := context.Background()
+	base := time.Now().Add(-time.Minute)
+	later := time.Now().Add(time.Hour).UTC().Truncate(time.Millisecond)
+	past := time.Now().Add(-time.Second).UTC().Truncate(time.Millisecond)
+
+	delayed := pendingRecord("delayed", base)
+	delayed.RunAt = &later
+	due := pendingRecord("due", base.Add(time.Second))
+	due.RunAt = &past
+	for _, r := range []backend.JobRecord{delayed, due, pendingRecord("plain", base.Add(2*time.Second))} {
+		if err := store.Save(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, want := range []string{"due", "plain"} {
+		got, err := store.Claim(ctx)
+		if err != nil || string(got.ID) != want {
+			t.Fatalf("Claim = %v, %v; want %s", got.ID, err, want)
+		}
+	}
+	if _, err := store.Claim(ctx); !errors.Is(err, backend.ErrNotFound) {
+		t.Fatalf("Claim = %v, want ErrNotFound while delayed is not due", err)
+	}
+	rec, err := store.Get(ctx, "delayed")
+	if err != nil || rec.RunAt == nil || !rec.RunAt.Equal(later) {
+		t.Fatalf("Get delayed = %+v, %v; want RunAt %v", rec, err, later)
+	}
+}

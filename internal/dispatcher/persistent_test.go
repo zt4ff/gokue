@@ -143,7 +143,7 @@ func TestStoreRecordsFailureAfterRetries(t *testing.T) {
 	if got := runsOf(t.Name()); got != 3 {
 		t.Fatalf("ran %d times, want 3", got)
 	}
-	if rec := onlyRecord(t, store); rec.FinishedAt == nil || rec.Attempts != 1 {
+	if rec := onlyRecord(t, store); rec.FinishedAt == nil || rec.Attempts != 3 {
 		t.Fatalf("record = %+v", rec)
 	}
 }

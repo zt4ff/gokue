@@ -3,6 +3,7 @@ package gokue_test
 import (
 	"context"
 	"errors"
+	"sort"
 	"sync"
 	"testing"
 
@@ -83,6 +84,8 @@ func TestLifecycleHooksFireOncePerOutcome(t *testing.T) {
 	if got := names(r.success); len(got) != 2 || got[0] != "ok" || got[1] != "flaky" {
 		t.Errorf("OnSuccess: %v", got)
 	}
+	// Retries do not hold the worker, so "permanent" can fail before "fail".
+	sort.Slice(r.failure, func(i, j int) bool { return r.failure[i].Name < r.failure[j].Name })
 	if got := names(r.failure); len(got) != 2 || got[0] != "fail" || got[1] != "permanent" {
 		t.Errorf("OnFailure: %v", got)
 	}

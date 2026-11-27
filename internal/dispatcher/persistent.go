@@ -62,14 +62,29 @@ func (d *Dispatcher) save(ctx context.Context, task Task) error {
 		Status:    backend.StatusPending,
 		CreatedAt: task.SubmittedAt,
 	}
+	delay := time.Until(task.RunAt)
+	if delay > 0 {
+		runAt := task.RunAt.UTC()
+		rec.RunAt = &runAt
+	}
 	if err := d.store.Save(ctx, rec); err != nil {
 		d.local.Delete(id)
 		return err
 	}
 	d.collector.IncEnqueued()
 	logger.LogSubmitEnqueued(d.logger, task.Name)
-	d.wakeWorker()
+	d.wakeAfter(delay)
 	return nil
+}
+
+// wakeAfter wakes an idle worker once delay has passed, so a record this
+// process scheduled runs on time rather than at the next poll.
+func (d *Dispatcher) wakeAfter(delay time.Duration) {
+	if delay <= 0 {
+		d.wakeWorker()
+		return
+	}
+	time.AfterFunc(delay, d.wakeWorker)
 }
 
 func (d *Dispatcher) wakeWorker() {
@@ -215,7 +230,11 @@ func (d *Dispatcher) runRecord(rec backend.JobRecord) {
 	default:
 	}
 
-	task := Task{Name: string(rec.Name), SubmittedAt: rec.CreatedAt, ctx: context.Background()}
+	// Each claim is one attempt; Attempts counts them, including this one.
+	task := Task{Name: string(rec.Name), SubmittedAt: rec.CreatedAt, ctx: context.Background(), firstStart: time.Now()}
+	if rec.Attempts > 0 {
+		task.attempt = int(rec.Attempts) - 1
+	}
 	j, err := d.codec.Decode(rec.Name, rec.Payload)
 	if err != nil {
 		d.local.Delete(rec.ID)
@@ -230,6 +249,21 @@ func (d *Dispatcher) runRecord(rec backend.JobRecord) {
 		o := v.(localTask).task
 		task.MaxRetries, task.RetryDelay, task.RetryPredicates = o.MaxRetries, o.RetryDelay, o.RetryPredicates
 	}
+	// retry returns the record to pending until its backoff has passed.
+	retry := func(delay time.Duration, jobErr error) {
+		runAt := time.Now().Add(delay).UTC()
+		if task.hasOverrides() {
+			d.local.Store(rec.ID, localTask{task: task, savedAt: time.Now()})
+		}
+		if d.write(c, "retry", func(r *backend.JobRecord) {
+			r.Status = backend.StatusPending
+			r.StartedAt = nil
+			r.RunAt = &runAt
+			r.LastError = jobErr.Error()
+		}) {
+			d.wakeAfter(delay)
+		}
+	}
 
 	stop := make(chan struct{})
 	done := make(chan struct{})
@@ -237,15 +271,15 @@ func (d *Dispatcher) runRecord(rec backend.JobRecord) {
 		defer close(done)
 		d.heartbeat(c, stop)
 	}()
-	result, jobErr := d.safeExecute(task)
+	result, delay, jobErr := d.safeExecute(task)
 	close(stop)
 	<-done
 
 	switch result {
 	case outcomeSucceeded:
 		finish(backend.StatusSucceeded, nil)
-	case outcomeAbandoned:
-		release()
+	case outcomeRetry:
+		retry(delay, jobErr)
 	default:
 		finish(backend.StatusFailed, jobErr)
 	}
@@ -325,6 +359,7 @@ func (d *Dispatcher) Replay(ctx context.Context, id job.ID) error {
 	rec.StartedAt = nil
 	rec.FinishedAt = nil
 	rec.LastError = ""
+	rec.RunAt = nil
 	if err := d.store.Update(ctx, rec); err != nil {
 		return err
 	}

@@ -52,7 +52,7 @@ func (q *Queue) Health() Health {
 	switch {
 	case q.closed.Load():
 		h.Status = HealthClosed
-	case h.QueueSize > 0 && h.QueueDepth >= h.QueueSize:
+	case h.QueueSize > 0 && q.dispatcher.Backlog() >= h.QueueSize:
 		h.Status = HealthSaturated
 	}
 	return h

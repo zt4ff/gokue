@@ -27,6 +27,7 @@ type jobDocument struct {
 	StartedAt  *time.Time        `bson:"started_at,omitempty"`
 	FinishedAt *time.Time        `bson:"finished_at,omitempty"`
 	LastError  string            `bson:"last_error,omitempty"`
+	RunAt      *time.Time        `bson:"run_at,omitempty"`
 }
 
 func toDocument(rec backend.JobRecord) jobDocument {
@@ -41,6 +42,7 @@ func toDocument(rec backend.JobRecord) jobDocument {
 		StartedAt:  rec.StartedAt,
 		FinishedAt: rec.FinishedAt,
 		LastError:  rec.LastError,
+		RunAt:      rec.RunAt,
 	}
 }
 
@@ -56,6 +58,7 @@ func fromDocument(doc jobDocument) backend.JobRecord {
 		StartedAt:  doc.StartedAt,
 		FinishedAt: doc.FinishedAt,
 		LastError:  doc.LastError,
+		RunAt:      doc.RunAt,
 	}
 }
 
@@ -96,7 +99,9 @@ func (s *MongoJobStore) Setup(ctx context.Context) error {
 	return s.EnsureIndexes(ctx)
 }
 
-// EnsureIndexes creates the index used to order pending jobs.
+// EnsureIndexes creates the index used to claim due pending jobs in order.
+// Stores created by earlier versions keep their status_created_at index,
+// which can be dropped.
 func (s *MongoJobStore) EnsureIndexes(ctx context.Context) error {
 	coll, err := s.collectionHandle()
 	if err != nil {
@@ -104,8 +109,9 @@ func (s *MongoJobStore) EnsureIndexes(ctx context.Context) error {
 	}
 
 	_, err = coll.Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys:    bson.D{{Key: "status", Value: 1}, {Key: "created_at", Value: 1}},
-		Options: options.Index().SetName("status_created_at"),
+		// Equality on status, sort on created_at, then the run_at range.
+		Keys:    bson.D{{Key: "status", Value: 1}, {Key: "created_at", Value: 1}, {Key: "run_at", Value: 1}},
+		Options: options.Index().SetName("status_created_at_run_at"),
 	})
 	if err != nil {
 		return fmt.Errorf("create index: %w", err)
@@ -172,7 +178,11 @@ func (s *MongoJobStore) Claim(ctx context.Context) (backend.JobRecord, error) {
 		SetReturnDocument(options.After)
 
 	var doc jobDocument
-	err = coll.FindOneAndUpdate(ctx, bson.M{"status": backend.StatusPending}, update, opts).Decode(&doc)
+	filter := bson.M{
+		"status": backend.StatusPending,
+		"$or":    bson.A{bson.M{"run_at": nil}, bson.M{"run_at": bson.M{"$lte": now}}},
+	}
+	err = coll.FindOneAndUpdate(ctx, filter, update, opts).Decode(&doc)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return backend.JobRecord{}, backend.ErrNotFound
@@ -198,6 +208,7 @@ func (s *MongoJobStore) Update(ctx context.Context, rec backend.JobRecord) error
 			"started_at":  rec.StartedAt,
 			"finished_at": rec.FinishedAt,
 			"last_error":  rec.LastError,
+			"run_at":      rec.RunAt,
 		},
 		"$inc": bson.M{"version": 1},
 	}

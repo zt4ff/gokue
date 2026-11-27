@@ -385,3 +385,28 @@ func TestMemoryStoreClose(t *testing.T) {
 		t.Fatalf("Get after Close error = %v, want ErrStoreClosed", err)
 	}
 }
+
+func TestMemoryStoreClaimSkipsFutureRunAt(t *testing.T) {
+	s := NewMemoryStore()
+	ctx := context.Background()
+	base := time.Now().Add(-time.Minute)
+	later := time.Now().Add(time.Hour)
+	past := time.Now().Add(-time.Second)
+
+	delayed := newRecord("delayed", base)
+	delayed.RunAt = &later
+	due := newRecord("due", base.Add(time.Second))
+	due.RunAt = &past
+	for _, r := range []JobRecord{delayed, due} {
+		if err := s.Save(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.Claim(ctx)
+	if err != nil || got.ID != "due" {
+		t.Fatalf("Claim = %v, %v; want due", got.ID, err)
+	}
+	if _, err := s.Claim(ctx); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Claim = %v, want ErrNotFound while delayed is not due", err)
+	}
+}
